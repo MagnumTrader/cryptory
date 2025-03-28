@@ -1,6 +1,6 @@
 #![allow(unused, unreachable_code)]
 
-use chrono::NaiveDate;
+use chrono::{Days, NaiveDate};
 use clap::{Command, Parser, ValueEnum};
 use std::{
     io::{BufReader, BufWriter, Read, Write},
@@ -17,6 +17,8 @@ fn main() {
     let input = Input::parse();
     println!("{input:?}");
 
+    let next_day = input.from.checked_add_days(Days::new(1)).unwrap();
+    println!("{next_day:?}");
     // construct the file link
 
     return;
@@ -51,7 +53,6 @@ fn main() {
 // TODO: Construct a file name correctly
 // TODO: Check if the filename is already there
 
-
 // Application model
 // TODO: Write docs for clap
 //       - where to find info on the api, and where we are getting files from
@@ -81,10 +82,10 @@ type ToDate = NaiveDate;
 enum Period {
     // format year-month YY-MM
     /// Fetch file with a whole month worth of data
-    Monthly, 
+    Monthly,
     //  format year-month-day YY-MM-DD
     /// Fetch each day in separate files
-    Daily,   
+    Daily,
 }
 
 impl FromStr for Period {
