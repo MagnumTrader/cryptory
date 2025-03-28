@@ -1,26 +1,34 @@
 #![allow(unused, unreachable_code)]
 
-use chrono::{Days, NaiveDate};
+use chrono::{Days, Months, NaiveDate, Utc};
 use clap::{Command, Parser, ValueEnum};
 use std::{
+    fmt::Display,
     io::{BufReader, BufWriter, Read, Write},
     str::FromStr,
 };
 
 // TODO: in the file header do we get information about how large the file is?
 //       display this to the user and confirm if fetching big files
+//
+// TODO: Unzip the files u just downloaded
+// TODO: remove all the zip files
 
 const D_FILE: &str =
     "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01.zip";
 
 fn main() {
-    let input = Input::parse();
+    let mut input = Input::parse();
     println!("{input:?}");
 
+    // HACK: Date things, remove later
     let next_day = input.from.checked_add_days(Days::new(1)).unwrap();
+    let next_month = input.from.checked_add_months(Months::new(1)).unwrap();
     println!("{next_day:?}");
+    println!("{next_month:?}");
+    let today = input.to.get_or_insert(Utc::now().date_naive());
     // construct the file link
-
+    println!("{}/{}-{}", input.period, input.timeframe, input.from);
     return;
     // NOTE: cmd line to download all the files
     //
@@ -99,6 +107,16 @@ impl FromStr for Period {
     }
 }
 
+impl Display for Period {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Period::Monthly => "monthly",
+            Period::Daily => "daily",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 /// Valid representation of timeframes that can be fetched from binance.
 #[derive(Debug, Clone)]
 struct TimeFrame(String);
@@ -111,5 +129,11 @@ impl FromStr for TimeFrame {
             | "3m" | "4h" | "5m" | "6h" | "8h" => Ok(TimeFrame(s.to_string())),
             _ => Err("Invalid timeframe"),
         }
+    }
+}
+
+impl Display for TimeFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
