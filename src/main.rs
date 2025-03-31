@@ -14,8 +14,6 @@ fn main() {
 
     println!("{}", input.period.start_date().url_string(&input.period));
 
-    return;
-
     //https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2025-01.zip
     let request = reqwest::blocking::get(url).unwrap();
     if !request.status().is_success() {
@@ -148,11 +146,11 @@ impl<'a> Iterator for PeriodUrlIterator<'a> {
             return None;
         }
 
-        let s = self.curr_date.to_string(); // here we need formatting
+        let s = self.curr_date.url_string(self.period);
 
         self.curr_date = self
             .curr_date
-            .add_date(self.period)
+            .add_date_from_period(self.period)
             .expect("expect valid date range");
 
         Some(s)
@@ -160,12 +158,12 @@ impl<'a> Iterator for PeriodUrlIterator<'a> {
 }
 
 trait DateHelper: Sized {
-    fn add_date(&self, period: &Period) -> Option<Self>;
+    fn add_date_from_period(&self, period: &Period) -> Option<Self>;
     fn url_string(&self, period: &Period) -> String;
 }
 
 impl DateHelper for NaiveDate {
-    fn add_date(&self, period: &Period) -> Option<NaiveDate> {
+    fn add_date_from_period(&self, period: &Period) -> Option<NaiveDate> {
         match period {
             Period::Daily { .. } => self.checked_add_days(chrono::Days::new(1)),
             Period::Monthly { .. } => self.checked_add_months(chrono::Months::new(1)),
