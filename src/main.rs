@@ -1,10 +1,9 @@
-#![allow(unused, unreachable_code)]
-use chrono::{Datelike, NaiveDate};
-use clap::{Parser, Subcommand, ValueEnum};
+use chrono::NaiveDate;
+use clap::{Parser, Subcommand};
 use reqwest::Url;
 use std::{
     fmt::Display,
-    io::{BufReader, BufWriter, Read, Write},
+    io::{BufReader, BufWriter},
     path::PathBuf,
     str::FromStr,
 };
