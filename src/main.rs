@@ -62,8 +62,8 @@ struct Input {
 
 impl Input {
     fn to_url_iter(&self) -> FileInfoIterator {
-        let curr_date = *self.period.start_date();
-        let end_date = *self.period.end_date().unwrap_or(&curr_date);
+        let curr_date = self.period.start_date();
+        let end_date = self.period.end_date().unwrap_or(curr_date);
 
         FileInfoIterator {
             curr_date,
@@ -168,17 +168,17 @@ impl Period {
         }
     }
 
-    fn start_date(&self) -> &NaiveDate {
+    fn start_date(&self) -> NaiveDate {
         match self {
-            Period::Daily { start_date, .. } => start_date,
-            Period::Monthly { start_date, .. } => start_date,
+            Period::Daily { start_date, .. } => *start_date,
+            Period::Monthly { start_date, .. } => *start_date,
         }
     }
 
-    fn end_date(&self) -> Option<&NaiveDate> {
+    fn end_date(&self) -> Option<NaiveDate> {
         match self {
-            Period::Daily { end_date, .. } => end_date.as_ref(),
-            Period::Monthly { end_date, .. } => end_date.as_ref(),
+            Period::Daily { end_date, .. } => *end_date,
+            Period::Monthly { end_date, .. } => *end_date,
         }
     }
 }
