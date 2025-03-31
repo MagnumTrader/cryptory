@@ -70,6 +70,7 @@ impl Input {
     }
 }
 
+/// The file info iterator is used to iterate over the files and urls that is to be downloaded.
 #[derive(Debug)]
 struct FileInfoIterator<'a> {
     input: &'a Input,
@@ -84,9 +85,10 @@ impl<'a> Iterator for FileInfoIterator<'a> {
         if self.curr_date > self.end_date {
             return None;
         }
-        // This is not nice
-        let formatted_date = self.curr_date.url_string(&self.input.period);
-        let period_name = self.input.period.period_name();
+
+        let period = &self.input.period;
+        let formatted_date = self.curr_date.date_url_str(period);
+        let period_name = period.period_name();
 
         self.curr_date = self
             .curr_date
@@ -188,7 +190,7 @@ impl Display for Period {
 
 trait DateHelper: Sized {
     fn add_date_from_period(&self, period: &Period) -> Option<Self>;
-    fn url_string(&self, period: &Period) -> String;
+    fn date_url_str(&self, period: &Period) -> String;
 }
 
 impl DateHelper for NaiveDate {
@@ -199,7 +201,7 @@ impl DateHelper for NaiveDate {
         }
     }
 
-    fn url_string(&self, period: &Period) -> String {
+    fn date_url_str(&self, period: &Period) -> String {
         match period {
             Period::Daily { .. } => self.to_string(),
             Period::Monthly { .. } => self.format("%Y-%m").to_string(),
