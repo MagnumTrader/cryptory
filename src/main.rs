@@ -1,121 +1,178 @@
 #![allow(unused, unreachable_code)]
-
-use chrono::{Days, Months, NaiveDate, Utc};
-use clap::{Command, Parser, ValueEnum};
+use chrono::{Datelike, NaiveDate};
+use clap::{Parser, Subcommand, ValueEnum};
+use reqwest::Url;
 use std::{
     fmt::Display,
     io::{BufReader, BufWriter, Read, Write},
     str::FromStr,
 };
 
-// TODO: in the file header do we get information about how large the file is?
-//       display this to the user and confirm if fetching big files
-//
-// TODO: Unzip the files u just downloaded
-// TODO: remove all the zip files
-
-const D_FILE: &str =
-    "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01.zip";
-
 fn main() {
-    let mut input = Input::parse();
-    println!("{input:?}");
+    let input = Input::parse();
 
-    // HACK: Date things, remove later
-    let next_day = input.from.checked_add_days(Days::new(1)).unwrap();
-    let next_month = input.from.checked_add_months(Months::new(1)).unwrap();
-    println!("{next_day:?}");
-    println!("{next_month:?}");
-    let today = input.to.get_or_insert(Utc::now().date_naive());
-    // construct the file link
-    println!("{}/{}-{}", input.period, input.timeframe, input.from);
-    return;
-    // NOTE: cmd line to download all the files
-    //
-    //                                                                add headers to the file
-    //                                                              v like time open high etc
-    // JBTCUSDT 1m --monthly --start 2025-01 --end 2025-01 -unzip --header etc
-    //                                                      ^unzip into a csv file
-    // download fi
-    let mut file = std::fs::OpenOptions::new()
+    let url = construct_file_url(&input.ticker, &input.timeframe, &input.period);
+
+    println!("{url}");
+
+    //https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2025-01.zip
+    let req = reqwest::blocking::get(url).unwrap();
+    if !req.status().is_success() {
+        eprintln!("{}: Make sure your ticker and date is valid!", req.status());
+        std::process::exit(1)
+    }
+
+    let file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
-        .open("./my_download.zip")
+        .open(format!(
+            "./{}-{}-{}.zip",
+            input.ticker,
+            input.timeframe,
+            input.period.start_date_url_string()
+        ))
         .unwrap();
-    let mut b_writer = BufWriter::new(file);
 
-    let mut req = reqwest::blocking::get(D_FILE).unwrap();
-    let mut buf = [0; 512];
-    let mut s = String::new();
+    let mut b_writer = BufWriter::new(file);
     let mut b_reader = BufReader::new(req);
 
-    while let Ok(n) = b_reader.read(&mut buf) {
-        if n == 0 {
-            break;
-        }
-        b_writer.write(&buf[..n]);
+    println!("Downloading has started...");
+    match std::io::copy(&mut b_reader, &mut b_writer) {
+        Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
+        Err(e) => eprintln!("ERROR: {e}"),
     }
-    let _ = b_writer.flush();
-    println!("done downloading!")
+    println!("Done downloading!")
 }
-// TODO: Construct a file name correctly
-// TODO: Check if the filename is already there
 
-// Application model
-// TODO: Write docs for clap
-//       - where to find info on the api, and where we are getting files from
+// Valid url: "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01.zip";
+fn construct_file_url(ticker: &Ticker, timeframe: &TimeFrame, period: &Period) -> Url {
+    Url::parse(&format!("https://data.binance.vision/data/spot/{}/klines/{ticker}/{timeframe}/{ticker}-{timeframe}-{}.zip", period.period_name(), period.start_date_url_string()))
+    .unwrap()
+}
 
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Input {
     /// The ticker symbol you want to fetch data for.
     ticker: Ticker,
+    /// The timeframe of the bars to fetch
     timeframe: TimeFrame,
     /// Period of the fetched file.
+    #[command(subcommand)]
     period: Period,
-    /// Select the first date you want data from.
-    from: FromDate,
-
-    /// Select the last date you want data to.
-    /// If left out, assumes todays date.
-    #[arg(short)]
-    to: Option<ToDate>,
 }
 
-type Ticker = String;
-type FromDate = NaiveDate;
-type ToDate = NaiveDate;
-
-#[derive(Debug, Clone, ValueEnum)]
+/// Period of the fetched file.
+#[derive(Debug, Clone, Subcommand)]
 enum Period {
-    // format year-month YY-MM
-    /// Fetch file with a whole month worth of data
-    Monthly,
-    //  format year-month-day YY-MM-DD
-    /// Fetch each day in separate files
-    Daily,
+    /// Fetch file(s) for each day in the period from start to end date.
+    Daily {
+        /// Select the first date you want data from.
+        start_date: NaiveDate,
+        /// Select the last date you want data to.
+        /// If left out, will only download the day of start_date
+        #[arg(short)]
+        end_date: Option<NaiveDate>,
+    },
+    // TODO: implement parsing for Monthly so we can pass 2025-01 only
+    /// Fetch file(s) for each month in the period from start to end date.
+    /// Daily numbers will be ignored, only year and month is taken into account.
+    Monthly {
+        /// Select the first date you want data from.
+        /// Will only use the year and month part.
+        start_date: NaiveDate,
+        /// Select the last date you want data to.
+        /// If left out, will only download month of start_date
+        #[arg(short)]
+        end_date: Option<NaiveDate>,
+    },
 }
 
-impl FromStr for Period {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "daily" | "d" => Ok(Period::Daily),
-            "monthly" | "m" => Ok(Period::Monthly),
-            _ => Err("Invalid Period, valid is daily, d, monthly, m"),
+impl Period {
+    #[inline]
+    fn period_name(&self) -> &str {
+        match self {
+            Period::Daily { .. } => "daily",
+            Period::Monthly { .. } => "monthly",
         }
+    }
+
+    fn start_date(&self) -> &NaiveDate {
+        match self {
+            Period::Daily { start_date, .. } => start_date,
+            Period::Monthly { start_date, .. } => start_date,
+        }
+    }
+
+    /// these may belong to the iterator
+    fn start_date_url_string(&self) -> String {
+        match self {
+            Period::Daily { start_date, .. } => start_date.to_string(),
+            Period::Monthly { start_date, .. } => {
+                format!("{}-{}", start_date.year(), start_date.format("%m"))
+            }
+        }
+    }
+
+    fn end_date(&self) -> Option<&NaiveDate> {
+        match self {
+            Period::Daily { end_date, .. } => end_date.as_ref(),
+            Period::Monthly { end_date, .. } => end_date.as_ref(),
+        }
+    }
+
+    fn end_date_url_string(&self) -> Option<String> {
+        match self {
+            Period::Daily {
+                end_date: Some(end_date),
+                ..
+            } => Some(end_date.to_string()),
+            Period::Monthly {
+                end_date: Some(end_date),
+                ..
+            } => {
+                // >                    Format month to be 0x format   v
+                let s = format!("{}-{}", end_date.year(), end_date.format("%m"));
+                Some(s)
+            }
+            _ => None,
+        }
+    }
+
+    fn period_str_iterator(&self) -> PeriodUrlIterator {
+        todo!()
     }
 }
 
 impl Display for Period {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Period::Monthly => "monthly",
-            Period::Daily => "daily",
-        };
-        write!(f, "{}", s)
+        write!(f, "{:?}", self)
     }
 }
+
+struct PeriodUrlIterator {}
+// TODO: IntoUrlIterator
+
+#[derive(Debug, Clone)]
+struct Ticker(String);
+
+impl Display for Ticker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for Ticker {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // validate symbols here i guess url will fail?
+        Ok(Self(s.to_uppercase()))
+    }
+}
+
+type FromDate = NaiveDate;
+type ToDate = NaiveDate;
 
 /// Valid representation of timeframes that can be fetched from binance.
 #[derive(Debug, Clone)]
