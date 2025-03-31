@@ -5,51 +5,47 @@ use reqwest::Url;
 use std::{
     fmt::Display,
     io::{BufReader, BufWriter, Read, Write},
+    path::PathBuf,
     str::FromStr,
 };
 
 fn main() {
+
     let input = Input::parse();
-    let url = construct_file_url(&input.ticker, &input.timeframe, &input.period);
 
-    println!("{}", input.period.start_date().url_string(&input.period));
+    let mut fileinfo_iter = input.to_url_iter();
+    while let Some(Ok(fileinfo))= fileinfo_iter.next() {
 
-    //https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2025-01.zip
-    let request = reqwest::blocking::get(url).unwrap();
-    if !request.status().is_success() {
-        eprintln!(
-            "{}: Make sure your ticker and date is valid!",
-            request.status()
-        );
-        std::process::exit(1)
+        let FileInfo {
+            source_url,
+            file_path,
+        } = fileinfo;
+
+        let request = reqwest::blocking::get(source_url).unwrap();
+        if !request.status().is_success() {
+            eprintln!(
+                "{}: Make sure your ticker and date is valid!",
+                request.status()
+            );
+            std::process::exit(1)
+        }
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(file_path)
+            .unwrap();
+
+        let mut reader = BufReader::new(request);
+        let mut writer = BufWriter::new(file);
+
+        println!("Downloading has started...");
+        match std::io::copy(&mut reader, &mut writer) {
+            Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
+            Err(e) => eprintln!("ERROR: {e}"),
+        }
+        println!("Done downloading!")
     }
-
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(format!(
-            "./{}-{}-{}.zip",
-            input.ticker,
-            input.timeframe,
-            input.period.start_date().url_string(&input.period)
-        ))
-        .unwrap();
-
-    let mut reader = BufReader::new(request);
-    let mut writer = BufWriter::new(file);
-
-    println!("Downloading has started...");
-    match std::io::copy(&mut reader, &mut writer) {
-        Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
-        Err(e) => eprintln!("ERROR: {e}"),
-    }
-    println!("Done downloading!")
-}
-
-// Valid url: "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01.zip";
-fn construct_file_url(ticker: &Ticker, timeframe: &TimeFrame, period: &Period) -> Url {
-    Url::parse(&format!("https://data.binance.vision/data/spot/{}/klines/{ticker}/{timeframe}/{ticker}-{timeframe}-{}.zip", period.period_name(), period.start_date().url_string(period)))
-    .unwrap()
 }
 
 #[derive(Debug, Parser)]
@@ -62,6 +58,79 @@ struct Input {
     /// Period of the fetched file.
     #[command(subcommand)]
     period: Period,
+}
+
+impl Input {
+    fn to_url_iter(&self) -> FileInfoIterator {
+        let curr_date = *self.period.start_date();
+        let end_date = *self.period.end_date().unwrap_or(&curr_date);
+
+        FileInfoIterator {
+            curr_date,
+            end_date,
+            input: self,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FileInfoIterator<'a> {
+    input: &'a Input,
+    curr_date: NaiveDate,
+    end_date: NaiveDate,
+}
+
+impl<'a> Iterator for FileInfoIterator<'a> {
+    type Item = Result<FileInfo, &'static str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr_date > self.end_date {
+            return None;
+        }
+
+        let formatted_date = self.curr_date.url_string(&self.input.period);
+        let period_name = self.input.period.period_name();
+
+        self.curr_date = self
+            .curr_date
+            .add_date_from_period(&self.input.period)
+            .expect("expect valid date range");
+
+        Some(Ok(FileInfo::new(
+            &self.input.ticker,
+            &self.input.timeframe,
+            period_name,
+            &formatted_date,
+        )))
+    }
+}
+
+#[derive(Debug)]
+struct FileInfo {
+    source_url: Url,
+    file_path: PathBuf,
+}
+
+impl FileInfo {
+    fn new(
+        ticker: &Ticker,
+        timeframe: &TimeFrame,
+        period_name: &str,
+        formatted_date: &str,
+    ) -> Self {
+        let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
+        let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
+
+        let source_url = Url::parse(&url_str).expect("expect correct url");
+
+        let mut file_path = PathBuf::from(std::env::current_dir().unwrap());
+        file_path.push(file_name);
+
+        FileInfo {
+            source_url,
+            file_path,
+        }
+    }
 }
 
 /// Period of the fetched file.
@@ -112,48 +181,11 @@ impl Period {
             Period::Monthly { end_date, .. } => end_date.as_ref(),
         }
     }
-
-    /// Returns an iterator of all the dates in period range.
-    /// as strings to be used in the url creation
-    fn period_str_iterator(&self) -> Result<PeriodUrlIterator, NoEndDate> {
-        let end_date = self.end_date().ok_or(NoEndDate)?;
-        Ok(PeriodUrlIterator {
-            curr_date: *self.start_date(),
-            end_date: *end_date,
-            period: self,
-        })
-    }
 }
 
 impl Display for Period {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
-    }
-}
-
-struct NoEndDate;
-struct PeriodUrlIterator<'a> {
-    curr_date: NaiveDate,
-    end_date: NaiveDate,
-    period: &'a Period,
-}
-
-impl<'a> Iterator for PeriodUrlIterator<'a> {
-    type Item = String;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_date > self.end_date {
-            return None;
-        }
-
-        let s = self.curr_date.url_string(self.period);
-
-        self.curr_date = self
-            .curr_date
-            .add_date_from_period(self.period)
-            .expect("expect valid date range");
-
-        Some(s)
     }
 }
 
