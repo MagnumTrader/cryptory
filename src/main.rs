@@ -10,14 +10,14 @@ use std::{
 
 fn main() {
     let input = Input::parse();
-    let mut fileinfo_iter = input.to_url_iter();
 
     // Iterate over all fileinfo
-    while let Some(FileInfo {
-        source_url,
-        file_path,
-    }) = fileinfo_iter.next()
-    {
+    for fileinfo in input.to_url_iter() {
+        let FileInfo {
+            source_url,
+            file_path,
+        } = fileinfo;
+
         println!("Downloading of {source_url} started...");
         let request = reqwest::blocking::get(source_url).unwrap();
         if !request.status().is_success() {
