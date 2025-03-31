@@ -9,11 +9,9 @@ use std::{
 };
 
 fn main() {
+
     let input = Input::parse();
-
     let url = construct_file_url(&input.ticker, &input.timeframe, &input.period);
-
-    println!("{url}");
 
     //https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2025-01.zip
     let req = reqwest::blocking::get(url).unwrap();
@@ -33,11 +31,11 @@ fn main() {
         ))
         .unwrap();
 
-    let mut b_writer = BufWriter::new(file);
-    let mut b_reader = BufReader::new(req);
+    let mut writer = BufWriter::new(file);
+    let mut reader = BufReader::new(req);
 
     println!("Downloading has started...");
-    match std::io::copy(&mut b_reader, &mut b_writer) {
+    match std::io::copy(&mut reader, &mut writer) {
         Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
         Err(e) => eprintln!("ERROR: {e}"),
     }
