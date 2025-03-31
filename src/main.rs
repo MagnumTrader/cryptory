@@ -9,14 +9,20 @@ use std::{
 };
 
 fn main() {
-
     let input = Input::parse();
     let url = construct_file_url(&input.ticker, &input.timeframe, &input.period);
 
+    println!("{}", input.period.start_date().url_string(&input.period));
+
+    return;
+
     //https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2025-01.zip
-    let req = reqwest::blocking::get(url).unwrap();
-    if !req.status().is_success() {
-        eprintln!("{}: Make sure your ticker and date is valid!", req.status());
+    let request = reqwest::blocking::get(url).unwrap();
+    if !request.status().is_success() {
+        eprintln!(
+            "{}: Make sure your ticker and date is valid!",
+            request.status()
+        );
         std::process::exit(1)
     }
 
@@ -27,12 +33,12 @@ fn main() {
             "./{}-{}-{}.zip",
             input.ticker,
             input.timeframe,
-            input.period.start_date_url_string()
+            input.period.start_date().url_string(&input.period)
         ))
         .unwrap();
 
+    let mut reader = BufReader::new(request);
     let mut writer = BufWriter::new(file);
-    let mut reader = BufReader::new(req);
 
     println!("Downloading has started...");
     match std::io::copy(&mut reader, &mut writer) {
@@ -44,7 +50,7 @@ fn main() {
 
 // Valid url: "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2025-01.zip";
 fn construct_file_url(ticker: &Ticker, timeframe: &TimeFrame, period: &Period) -> Url {
-    Url::parse(&format!("https://data.binance.vision/data/spot/{}/klines/{ticker}/{timeframe}/{ticker}-{timeframe}-{}.zip", period.period_name(), period.start_date_url_string()))
+    Url::parse(&format!("https://data.binance.vision/data/spot/{}/klines/{ticker}/{timeframe}/{ticker}-{timeframe}-{}.zip", period.period_name(), period.start_date().url_string(period)))
     .unwrap()
 }
 
@@ -102,16 +108,6 @@ impl Period {
         }
     }
 
-    /// these may belong to the iterator
-    fn start_date_url_string(&self) -> String {
-        match self {
-            Period::Daily { start_date, .. } => start_date.to_string(),
-            Period::Monthly { start_date, .. } => {
-                format!("{}-{}", start_date.year(), start_date.format("%m"))
-            }
-        }
-    }
-
     fn end_date(&self) -> Option<&NaiveDate> {
         match self {
             Period::Daily { end_date, .. } => end_date.as_ref(),
@@ -119,26 +115,15 @@ impl Period {
         }
     }
 
-    fn end_date_url_string(&self) -> Option<String> {
-        match self {
-            Period::Daily {
-                end_date: Some(end_date),
-                ..
-            } => Some(end_date.to_string()),
-            Period::Monthly {
-                end_date: Some(end_date),
-                ..
-            } => {
-                // >                    Format month to be 0x format   v
-                let s = format!("{}-{}", end_date.year(), end_date.format("%m"));
-                Some(s)
-            }
-            _ => None,
-        }
-    }
-
-    fn period_str_iterator(&self) -> PeriodUrlIterator {
-        todo!()
+    /// Returns an iterator of all the dates in period range.
+    /// as strings to be used in the url creation
+    fn period_str_iterator(&self) -> Result<PeriodUrlIterator, NoEndDate> {
+        let end_date = self.end_date().ok_or(NoEndDate)?;
+        Ok(PeriodUrlIterator {
+            curr_date: *self.start_date(),
+            end_date: *end_date,
+            period: self,
+        })
     }
 }
 
@@ -148,8 +133,52 @@ impl Display for Period {
     }
 }
 
-struct PeriodUrlIterator {}
-// TODO: IntoUrlIterator
+struct NoEndDate;
+struct PeriodUrlIterator<'a> {
+    curr_date: NaiveDate,
+    end_date: NaiveDate,
+    period: &'a Period,
+}
+
+impl<'a> Iterator for PeriodUrlIterator<'a> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr_date > self.end_date {
+            return None;
+        }
+
+        let s = self.curr_date.to_string(); // here we need formatting
+
+        self.curr_date = self
+            .curr_date
+            .add_date(self.period)
+            .expect("expect valid date range");
+
+        Some(s)
+    }
+}
+
+trait DateHelper: Sized {
+    fn add_date(&self, period: &Period) -> Option<Self>;
+    fn url_string(&self, period: &Period) -> String;
+}
+
+impl DateHelper for NaiveDate {
+    fn add_date(&self, period: &Period) -> Option<NaiveDate> {
+        match period {
+            Period::Daily { .. } => self.checked_add_days(chrono::Days::new(1)),
+            Period::Monthly { .. } => self.checked_add_months(chrono::Months::new(1)),
+        }
+    }
+
+    fn url_string(&self, period: &Period) -> String {
+        match period {
+            Period::Daily { .. } => self.to_string(),
+            Period::Monthly { .. } => self.format("%Y-%m").to_string(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Ticker(String);
@@ -162,15 +191,11 @@ impl Display for Ticker {
 
 impl FromStr for Ticker {
     type Err = &'static str;
-
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // validate symbols here i guess url will fail?
         Ok(Self(s.to_uppercase()))
     }
 }
-
-type FromDate = NaiveDate;
-type ToDate = NaiveDate;
 
 /// Valid representation of timeframes that can be fetched from binance.
 #[derive(Debug, Clone)]
