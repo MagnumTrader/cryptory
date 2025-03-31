@@ -9,17 +9,16 @@ use std::{
 };
 
 fn main() {
-
     let input = Input::parse();
-
     let mut fileinfo_iter = input.to_url_iter();
-    while let Some(Ok(fileinfo))= fileinfo_iter.next() {
 
-        let FileInfo {
-            source_url,
-            file_path,
-        } = fileinfo;
-
+    // Iterate over all fileinfo
+    while let Some(FileInfo {
+        source_url,
+        file_path,
+    }) = fileinfo_iter.next()
+    {
+        println!("Downloading of {source_url} started...");
         let request = reqwest::blocking::get(source_url).unwrap();
         if !request.status().is_success() {
             eprintln!(
@@ -38,7 +37,6 @@ fn main() {
         let mut reader = BufReader::new(request);
         let mut writer = BufWriter::new(file);
 
-        println!("Downloading has started...");
         match std::io::copy(&mut reader, &mut writer) {
             Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
             Err(e) => eprintln!("ERROR: {e}"),
@@ -80,13 +78,13 @@ struct FileInfoIterator<'a> {
 }
 
 impl<'a> Iterator for FileInfoIterator<'a> {
-    type Item = Result<FileInfo, &'static str>;
+    type Item = FileInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr_date > self.end_date {
             return None;
         }
-
+        // This is not nice
         let formatted_date = self.curr_date.url_string(&self.input.period);
         let period_name = self.input.period.period_name();
 
@@ -95,12 +93,12 @@ impl<'a> Iterator for FileInfoIterator<'a> {
             .add_date_from_period(&self.input.period)
             .expect("expect valid date range");
 
-        Some(Ok(FileInfo::new(
+        Some(FileInfo::new(
             &self.input.ticker,
             &self.input.timeframe,
             period_name,
             &formatted_date,
-        )))
+        ))
     }
 }
 
