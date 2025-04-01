@@ -12,14 +12,19 @@ fn main() {
     let input = Input::parse();
 
     // Iterate over all fileinfo
-    for fileinfo in input.to_url_iter() {
+    for fileinfo in input.to_fileinfo_iter() {
         let FileInfo {
             source_url,
             file_path,
         } = fileinfo;
 
+        // it should pop up in a list
         println!("Downloading of {source_url} started...");
+
+        // do we get some sizes?
         let request = reqwest::blocking::get(source_url).unwrap();
+        println!("{:?}", request.content_length());
+
         if !request.status().is_success() {
             eprintln!(
                 "{}: Make sure your ticker and date is valid!",
@@ -36,7 +41,6 @@ fn main() {
 
         let mut reader = BufReader::new(request);
         let mut writer = BufWriter::new(file);
-
         match std::io::copy(&mut reader, &mut writer) {
             Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
             Err(e) => eprintln!("ERROR: {e}"),
@@ -58,7 +62,7 @@ struct Input {
 }
 
 impl Input {
-    fn to_url_iter(&self) -> FileInfoIterator {
+    fn to_fileinfo_iter(&self) -> FileInfoIterator {
         let curr_date = self.period.start_date();
         let end_date = self.period.end_date().unwrap_or(curr_date);
 
@@ -70,7 +74,8 @@ impl Input {
     }
 }
 
-/// The file info iterator is used to iterate over the files and urls that is to be downloaded.
+/// The fileInfoIterator is used to iterate over the files 
+/// and urls that should be downloaded from binance
 #[derive(Debug)]
 struct FileInfoIterator<'a> {
     input: &'a Input,
@@ -87,6 +92,7 @@ impl<'a> Iterator for FileInfoIterator<'a> {
         }
 
         let period = &self.input.period;
+        // Maybe these should be types later?
         let formatted_date = self.curr_date.date_url_str(period);
         let period_name = period.period_name();
 
