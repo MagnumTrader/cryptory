@@ -183,6 +183,11 @@ fn parse_monthly(input: &str) -> Result<NaiveDate, &'static str> {
 }
 
 struct PeriodName(&'static str);
+impl Display for PeriodName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl Period {
     #[inline]
