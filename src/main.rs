@@ -9,6 +9,7 @@ use std::{
 };
 
 fn main() {
+
     let input = Input::parse();
 
     // Iterate over all fileinfo
@@ -126,7 +127,7 @@ impl FileInfo {
         let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
         let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
 
-        let source_url = Url::parse(&url_str).expect("expect correct url");
+        let source_url = Url::parse(&url_str).expect("expect correct url format above");
 
         let mut file_path = PathBuf::from(std::env::current_dir().unwrap());
         file_path.push(file_name);
