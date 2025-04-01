@@ -1,15 +1,15 @@
-use chrono::NaiveDate;
-use clap::{Parser, Subcommand};
-use reqwest::Url;
+mod fetch;
+use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
+
+use clap::Parser;
+
 use std::{
     fmt::Display,
     io::{BufReader, BufWriter},
-    path::PathBuf,
     str::FromStr,
 };
 
 fn main() {
-
     let input = Input::parse();
 
     // Iterate over all fileinfo
@@ -66,186 +66,7 @@ impl Input {
     fn to_fileinfo_iter(&self) -> FileInfoIterator {
         let curr_date = self.period.start_date();
         let end_date = self.period.end_date().unwrap_or(curr_date);
-
-        FileInfoIterator {
-            curr_date,
-            end_date,
-            input: self,
-        }
-    }
-}
-
-/// The fileInfoIterator is used to iterate over the files
-/// and urls that should be downloaded from binance
-#[derive(Debug)]
-struct FileInfoIterator<'a> {
-    input: &'a Input,
-    curr_date: NaiveDate,
-    end_date: NaiveDate,
-}
-
-impl<'a> Iterator for FileInfoIterator<'a> {
-    type Item = FileInfo;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_date > self.end_date {
-            return None;
-        }
-
-        let period = &self.input.period;
-        // Maybe these should be types later?
-        let formatted_date = self.curr_date.date_url_str(period);
-        let period_name = period.period_name();
-
-        self.curr_date = self
-            .curr_date
-            .add_date_from_period(&self.input.period)
-            .expect("expect valid date range");
-
-        Some(FileInfo::new(
-            &self.input.ticker,
-            &self.input.timeframe,
-            period_name,
-            formatted_date,
-        ))
-    }
-}
-
-#[derive(Debug)]
-struct FileInfo {
-    source_url: Url,
-    file_path: PathBuf,
-}
-
-impl FileInfo {
-    fn new(
-        ticker: &Ticker,
-        timeframe: &TimeFrame,
-        period_name: PeriodName,
-        formatted_date: FormattedDate,
-    ) -> Self {
-        let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
-        let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
-
-        let source_url = Url::parse(&url_str).expect("expect correct url format above");
-
-        let mut file_path = PathBuf::from(std::env::current_dir().unwrap());
-        file_path.push(file_name);
-
-        FileInfo {
-            source_url,
-            file_path,
-        }
-    }
-}
-
-/// Period of the fetched file.
-/// Format:
-/// 2025-01-01 for Daily
-/// 2025-01 or 2025-01-01 for Monthly (date will be ignored)
-#[derive(Debug, Clone, Subcommand)]
-enum Period {
-    /// Fetch file(s) for each day in the period from start to end date.
-    Daily {
-        /// Select the first date you want data from.
-        start_date: NaiveDate,
-        /// Select the last date you want data to.
-        /// If left out, will only download the day of start_date
-        #[arg(short)]
-        end_date: Option<NaiveDate>,
-    },
-    /// Fetch file(s) for each month in the period from start to end date.
-    /// Daily numbers will be ignored, only year and month is taken into account.
-    /// # Format
-    /// Can be supplied in the format "2025-01" or "2025-01-01" 
-    /// however in the second case the date portion will be ignored.
-    Monthly {
-        /// Select the first date you want data from.
-        /// Will only use the year and month part.
-        #[arg(value_parser = parse_monthly)]
-        start_date: NaiveDate,
-        /// Select the last date you want data to.
-        /// If left out, will only download month of start_date
-        #[arg(short)]
-        end_date: Option<NaiveDate>,
-    },
-}
-
-fn parse_monthly(input: &str) -> Result<NaiveDate, &'static str> {
-    let date = match NaiveDate::from_str(input) {
-        Ok(date) => date,
-        Err(_) => {
-            let mut s: String = input.into();
-            s.push_str("-01");
-            NaiveDate::from_str(&s).map_err(|_| "Invalid date format")?
-        }
-    };
-    Ok(date)
-}
-
-struct PeriodName(&'static str);
-impl Display for PeriodName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Period {
-    #[inline]
-    fn period_name(&self) -> PeriodName {
-        match self {
-            Period::Daily { .. } => PeriodName("daily"),
-            Period::Monthly { .. } => PeriodName("monthly"),
-        }
-    }
-
-    fn start_date(&self) -> NaiveDate {
-        match self {
-            Period::Daily { start_date, .. } => *start_date,
-            Period::Monthly { start_date, .. } => *start_date,
-        }
-    }
-
-    fn end_date(&self) -> Option<NaiveDate> {
-        match self {
-            Period::Daily { end_date, .. } => *end_date,
-            Period::Monthly { end_date, .. } => *end_date,
-        }
-    }
-}
-
-impl Display for Period {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-trait DateHelper: Sized {
-    fn add_date_from_period(&self, period: &Period) -> Option<Self>;
-    fn date_url_str(&self, period: &Period) -> FormattedDate;
-}
-
-impl DateHelper for NaiveDate {
-    fn add_date_from_period(&self, period: &Period) -> Option<NaiveDate> {
-        match period {
-            Period::Daily { .. } => self.checked_add_days(chrono::Days::new(1)),
-            Period::Monthly { .. } => self.checked_add_months(chrono::Months::new(1)),
-        }
-    }
-
-    fn date_url_str(&self, period: &Period) -> FormattedDate {
-        match period {
-            Period::Daily { .. } => FormattedDate(self.to_string()),
-            Period::Monthly { .. } => FormattedDate(self.format("%Y-%m").to_string()),
-        }
-    }
-}
-
-struct FormattedDate(String);
-
-impl Display for FormattedDate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        FileInfoIterator::new(self, curr_date, end_date)
     }
 }
 
@@ -263,26 +84,5 @@ impl FromStr for Ticker {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // validate symbols here i guess url will fail?
         Ok(Self(s.to_uppercase()))
-    }
-}
-
-/// Valid representation of timeframes that can be fetched from binance.
-#[derive(Debug, Clone)]
-struct TimeFrame(String);
-
-impl FromStr for TimeFrame {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "12h" | "15m" | "1d" | "1h" | "1m" | "1mo" | "1s" | "1w" | "2h" | "30m" | "3d"
-            | "3m" | "4h" | "5m" | "6h" | "8h" => Ok(TimeFrame(s.to_string())),
-            _ => Err("Invalid timeframe"),
-        }
-    }
-}
-
-impl Display for TimeFrame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
