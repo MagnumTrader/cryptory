@@ -74,7 +74,7 @@ impl Input {
     }
 }
 
-/// The fileInfoIterator is used to iterate over the files 
+/// The fileInfoIterator is used to iterate over the files
 /// and urls that should be downloaded from binance
 #[derive(Debug)]
 struct FileInfoIterator<'a> {
@@ -105,7 +105,7 @@ impl<'a> Iterator for FileInfoIterator<'a> {
             &self.input.ticker,
             &self.input.timeframe,
             period_name,
-            &formatted_date,
+            formatted_date,
         ))
     }
 }
@@ -120,8 +120,8 @@ impl FileInfo {
     fn new(
         ticker: &Ticker,
         timeframe: &TimeFrame,
-        period_name: &str,
-        formatted_date: &str,
+        period_name: PeriodName,
+        formatted_date: FormattedDate,
     ) -> Self {
         let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
         let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
@@ -164,12 +164,14 @@ enum Period {
     },
 }
 
+struct PeriodName(&'static str);
+
 impl Period {
     #[inline]
-    fn period_name(&self) -> &str {
+    fn period_name(&self) -> PeriodName {
         match self {
-            Period::Daily { .. } => "daily",
-            Period::Monthly { .. } => "monthly",
+            Period::Daily { .. } => PeriodName("daily"),
+            Period::Monthly { .. } => PeriodName("monthly"),
         }
     }
 
@@ -196,7 +198,7 @@ impl Display for Period {
 
 trait DateHelper: Sized {
     fn add_date_from_period(&self, period: &Period) -> Option<Self>;
-    fn date_url_str(&self, period: &Period) -> String;
+    fn date_url_str(&self, period: &Period) -> FormattedDate;
 }
 
 impl DateHelper for NaiveDate {
@@ -207,11 +209,19 @@ impl DateHelper for NaiveDate {
         }
     }
 
-    fn date_url_str(&self, period: &Period) -> String {
+    fn date_url_str(&self, period: &Period) -> FormattedDate {
         match period {
-            Period::Daily { .. } => self.to_string(),
-            Period::Monthly { .. } => self.format("%Y-%m").to_string(),
+            Period::Daily { .. } => FormattedDate(self.to_string()),
+            Period::Monthly { .. } => FormattedDate(self.format("%Y-%m").to_string()),
         }
+    }
+}
+
+struct FormattedDate(String);
+
+impl Display for FormattedDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
