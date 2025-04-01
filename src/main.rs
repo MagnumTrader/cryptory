@@ -139,6 +139,9 @@ impl FileInfo {
 }
 
 /// Period of the fetched file.
+/// Format:
+/// 2025-01-01 for Daily
+/// 2025-01 or 2025-01-01 for Monthly (date will be ignored)
 #[derive(Debug, Clone, Subcommand)]
 enum Period {
     /// Fetch file(s) for each day in the period from start to end date.
@@ -150,18 +153,33 @@ enum Period {
         #[arg(short)]
         end_date: Option<NaiveDate>,
     },
-    // TODO: implement parsing for Monthly so we can pass 2025-01 only
     /// Fetch file(s) for each month in the period from start to end date.
     /// Daily numbers will be ignored, only year and month is taken into account.
+    /// # Format
+    /// Can be supplied in the format "2025-01" or "2025-01-01" 
+    /// however in the second case the date portion will be ignored.
     Monthly {
         /// Select the first date you want data from.
         /// Will only use the year and month part.
+        #[arg(value_parser = parse_monthly)]
         start_date: NaiveDate,
         /// Select the last date you want data to.
         /// If left out, will only download month of start_date
         #[arg(short)]
         end_date: Option<NaiveDate>,
     },
+}
+
+fn parse_monthly(input: &str) -> Result<NaiveDate, &'static str> {
+    let date = match NaiveDate::from_str(input) {
+        Ok(date) => date,
+        Err(_) => {
+            let mut s: String = input.into();
+            s.push_str("-01");
+            NaiveDate::from_str(&s).map_err(|_| "Invalid date format")?
+        }
+    };
+    Ok(date)
 }
 
 struct PeriodName(&'static str);
