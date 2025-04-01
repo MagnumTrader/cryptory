@@ -27,7 +27,7 @@ pub enum Period {
         start_date: NaiveDate,
         /// Select the last date you want data to.
         /// If left out, will only download month of start_date
-        #[arg(short)]
+        #[arg(short, value_parser = parse_monthly)]
         end_date: Option<NaiveDate>,
     },
 }
