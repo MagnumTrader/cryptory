@@ -9,11 +9,17 @@ use std::{
     str::FromStr,
 };
 
+
+// TODO: What is the next steps
+
 fn main() {
     let input = Input::parse();
 
+    let client = reqwest::blocking::Client::new();
+
     // Iterate over all fileinfo
     for fileinfo in input.to_fileinfo_iter() {
+
         let FileInfo {
             source_url,
             file_path,
@@ -23,7 +29,7 @@ fn main() {
         println!("Downloading of {source_url} started...");
 
         // do we get some sizes?
-        let request = reqwest::blocking::get(source_url).unwrap();
+        let request = client.get(source_url).send().unwrap();
         println!("{:?}", request.content_length());
 
         if !request.status().is_success() {
@@ -51,7 +57,8 @@ fn main() {
 }
 
 #[derive(Debug, Parser)]
-#[command(version, about, long_about = None)]
+#[command(version, long_about = None)]
+#[command(about = "Non official CLI for Binance public data\n\nMore information can be found on https://github.com/binance/binance-public-data/")]
 struct Input {
     /// The ticker symbol you want to fetch data for.
     ticker: Ticker,
