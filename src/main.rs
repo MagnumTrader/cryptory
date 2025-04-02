@@ -7,6 +7,10 @@ use tokio::io::AsyncWriteExt;
 
 use std::{fmt::Display, str::FromStr};
 
+// TODO: Openfile to function
+// TODO: Permit for tasks, X at the time
+// TODO: channel on main thread collects info, 
+
 #[tokio::main]
 async fn main() {
     let input = Input::parse();
@@ -16,6 +20,7 @@ async fn main() {
 
     for fileinfo in input.to_fileinfo_iter() {
         let local_client = client.clone();
+
         set.spawn(async move {
             let FileInfo {
                 source_url,
@@ -57,6 +62,7 @@ async fn main() {
                     return;
                 }
             };
+
             if !request.status().is_success() {
                 eprintln!(
                     "{}: Make sure your ticker and date is valid!",
