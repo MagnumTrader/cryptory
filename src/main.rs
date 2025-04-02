@@ -15,10 +15,8 @@ async fn main() {
     let mut set = tokio::task::JoinSet::new();
 
     for fileinfo in input.to_fileinfo_iter() {
-
         let local_client = client.clone();
         set.spawn(async move {
-
             let FileInfo {
                 source_url,
                 file_path,
@@ -32,7 +30,13 @@ async fn main() {
 
             println!("Downloading of {} started...", file_name);
 
-            let request = local_client.get(source_url).send().await.unwrap();
+            let request = match local_client.get(source_url).send().await {
+                Ok(req) => req,
+                Err(e) => {
+                    eprintln!("Failed to download file {file_name}. Error: {e}");
+                    return;
+                }
+            };
             if !request.status().is_success() {
                 eprintln!(
                     "{}: Make sure your ticker and date is valid!",
@@ -41,13 +45,20 @@ async fn main() {
                 std::process::exit(1)
             }
 
-            // FIXME: this needs to be handled if we should overwrite or not
-            let mut file = tokio::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .open(file_path)
-                .await
-                .unwrap();
+            let mut open_options = tokio::fs::OpenOptions::new();
+
+            if !input.overwrite {
+                open_options.create_new(true);
+            } 
+
+            let mut file = match open_options.write(true).open(file_path).await {
+                Ok(file) => file,
+                Err(e) => {
+                    // TODO: i want to inform about -o flag
+                    eprintln!("failed to open file {e}");
+                    return;
+                }
+            };
 
             let mut stream = request.bytes_stream();
             while let Some(Ok(item)) = stream.next().await {
@@ -59,11 +70,6 @@ async fn main() {
                     }
                 }
             }
-
-            // match tokio::io::copy(&mut reader, &mut writer).await {
-            //     Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
-            //     Err(e) => eprintln!("ERROR: {e}"),
-            // }
             println!("Done downloading {file_name}!")
         });
     }
@@ -83,6 +89,8 @@ struct Input {
     /// Period of the fetched file.
     #[command(subcommand)]
     period: Period,
+    #[arg(short, long)]
+    overwrite: bool
 }
 
 impl Input {
