@@ -2,63 +2,79 @@ mod fetch;
 use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
 
 use clap::Parser;
+use futures_util::StreamExt;
+use tokio::io::AsyncWriteExt;
 
-use std::{
-    fmt::Display,
-    io::{BufReader, BufWriter},
-    str::FromStr,
-};
+use std::{fmt::Display, str::FromStr};
 
-
-// TODO: What is the next steps
-
-fn main() {
+#[tokio::main]
+async fn main() {
     let input = Input::parse();
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
+    let mut set = tokio::task::JoinSet::new();
 
-    // Iterate over all fileinfo
     for fileinfo in input.to_fileinfo_iter() {
 
-        let FileInfo {
-            source_url,
-            file_path,
-        } = fileinfo;
+        let local_client = client.clone();
+        set.spawn(async move {
 
-        // it should pop up in a list
-        println!("Downloading of {source_url} started...");
+            let FileInfo {
+                source_url,
+                file_path,
+            } = fileinfo;
+            let file_name = file_path
+                .file_stem()
+                .expect("we expect a file stem")
+                .to_str()
+                .unwrap()
+                .to_string();
 
-        // do we get some sizes?
-        let request = client.get(source_url).send().unwrap();
-        println!("{:?}", request.content_length());
+            println!("Downloading of {} started...", file_name);
 
-        if !request.status().is_success() {
-            eprintln!(
-                "{}: Make sure your ticker and date is valid!",
-                request.status()
-            );
-            std::process::exit(1)
-        }
+            let request = local_client.get(source_url).send().await.unwrap();
+            if !request.status().is_success() {
+                eprintln!(
+                    "{}: Make sure your ticker and date is valid!",
+                    request.status()
+                );
+                std::process::exit(1)
+            }
 
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(file_path)
-            .unwrap();
+            // FIXME: this needs to be handled if we should overwrite or not
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(file_path)
+                .await
+                .unwrap();
 
-        let mut reader = BufReader::new(request);
-        let mut writer = BufWriter::new(file);
-        match std::io::copy(&mut reader, &mut writer) {
-            Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
-            Err(e) => eprintln!("ERROR: {e}"),
-        }
-        println!("Done downloading!")
+            let mut stream = request.bytes_stream();
+            while let Some(Ok(item)) = stream.next().await {
+                match file.write(&item).await {
+                    Ok(bytes) => println!("wrote bytes {bytes} to: {file_name}"), // this should send it back for display
+                    Err(e) => {
+                        eprintln!("{e}: failed do write to file {}. Aborting", file_name);
+                        break;
+                    }
+                }
+            }
+
+            // match tokio::io::copy(&mut reader, &mut writer).await {
+            //     Ok(bytes_read) => println!("Successfully downloaded file, bytes_read: {bytes_read}"),
+            //     Err(e) => eprintln!("ERROR: {e}"),
+            // }
+            println!("Done downloading {file_name}!")
+        });
     }
+    set.join_all().await;
 }
 
 #[derive(Debug, Parser)]
 #[command(version, long_about = None)]
-#[command(about = "Non official CLI for Binance public data\n\nMore information can be found on https://github.com/binance/binance-public-data/")]
+#[command(
+    about = "Non official CLI for Binance public data\n\nMore information can be found on https://github.com/binance/binance-public-data/"
+)]
 struct Input {
     /// The ticker symbol you want to fetch data for.
     ticker: Ticker,
