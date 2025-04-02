@@ -28,8 +28,28 @@ async fn main() {
                 .unwrap()
                 .to_string();
 
-            println!("Downloading of {} started...", file_name);
+            let mut open_options = tokio::fs::OpenOptions::new();
 
+            if !input.overwrite {
+                open_options.create_new(true);
+            }
+
+            let mut file = match open_options.write(true).open(file_path).await {
+                Ok(file) => file,
+                Err(e) => {
+                    match e.kind() {
+                        // We only get this error if we have set create_new above 
+                        // using the input.overwrite flag.
+                        std::io::ErrorKind::AlreadyExists => {
+                            eprintln!("Failed to open File {file_name}, already exists. use -o to overwrite.")
+                        }
+                        _ => eprintln!("Failed to open File: {e}"),
+                    }
+                    return;
+                }
+            };
+
+            println!("Downloading of {} started...", file_name);
             let request = match local_client.get(source_url).send().await {
                 Ok(req) => req,
                 Err(e) => {
@@ -45,20 +65,6 @@ async fn main() {
                 std::process::exit(1)
             }
 
-            let mut open_options = tokio::fs::OpenOptions::new();
-
-            if !input.overwrite {
-                open_options.create_new(true);
-            } 
-
-            let mut file = match open_options.write(true).open(file_path).await {
-                Ok(file) => file,
-                Err(e) => {
-                    // TODO: i want to inform about -o flag
-                    eprintln!("failed to open file {e}");
-                    return;
-                }
-            };
 
             let mut stream = request.bytes_stream();
             while let Some(Ok(item)) = stream.next().await {
@@ -90,7 +96,7 @@ struct Input {
     #[command(subcommand)]
     period: Period,
     #[arg(short, long)]
-    overwrite: bool
+    overwrite: bool,
 }
 
 impl Input {
