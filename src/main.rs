@@ -5,27 +5,28 @@ use clap::Parser;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr, sync::Arc};
 
 // TODO: Openfile to function
 // TODO: Permit for tasks, X at the time
-// TODO: channel on main thread collects info, 
+// TODO: channel on main thread collects info,
 
 #[tokio::main]
 async fn main() {
-    let input = Input::parse();
-
+    let input = Arc::new(Input::parse());
     let client = reqwest::Client::new();
     let mut set = tokio::task::JoinSet::new();
 
     for fileinfo in input.to_fileinfo_iter() {
         let local_client = client.clone();
+        let local_input = Arc::clone(&input);
 
         set.spawn(async move {
             let FileInfo {
                 source_url,
                 file_path,
             } = fileinfo;
+
             let file_name = file_path
                 .file_stem()
                 .expect("we expect a file stem")
@@ -33,23 +34,10 @@ async fn main() {
                 .unwrap()
                 .to_string();
 
-            let mut open_options = tokio::fs::OpenOptions::new();
-
-            if !input.overwrite {
-                open_options.create_new(true);
-            }
-
-            let mut file = match open_options.write(true).open(file_path).await {
+            let mut file = match open_file(file_path, &local_input).await {
                 Ok(file) => file,
                 Err(e) => {
-                    match e.kind() {
-                        // We only get this error if we have set create_new above 
-                        // using the input.overwrite flag.
-                        std::io::ErrorKind::AlreadyExists => {
-                            eprintln!("Failed to open File {file_name}, already exists. use -o to overwrite.")
-                        }
-                        _ => eprintln!("Failed to open File: {e}"),
-                    }
+                    eprintln!("error when opening {file_name}: {e}");
                     return;
                 }
             };
@@ -70,7 +58,6 @@ async fn main() {
                 );
                 std::process::exit(1)
             }
-
 
             let mut stream = request.bytes_stream();
             while let Some(Ok(item)) = stream.next().await {
@@ -128,4 +115,15 @@ impl FromStr for Ticker {
         // validate symbols here i guess url will fail?
         Ok(Self(s.to_uppercase()))
     }
+}
+async fn open_file(
+    path: std::path::PathBuf,
+    input: &Input,
+) -> Result<tokio::fs::File, std::io::Error> {
+    let mut open_options = tokio::fs::OpenOptions::new();
+
+    if !input.overwrite {
+        open_options.create_new(true);
+    }
+    open_options.write(true).open(path).await
 }
