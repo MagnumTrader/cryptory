@@ -123,7 +123,9 @@ async fn open_file(
     let mut open_options = tokio::fs::OpenOptions::new();
 
     if !input.overwrite {
+        // create is ignored when create new is set.
+        // so we can always include it.
         open_options.create_new(true);
     }
-    open_options.write(true).open(path).await
+    open_options.create(true).write(true).open(path).await
 }
