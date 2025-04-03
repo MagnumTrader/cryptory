@@ -7,21 +7,27 @@ use tokio::io::AsyncWriteExt;
 
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
-// TODO: Openfile to function
-// TODO: Permit for tasks, X at the time
 // TODO: channel on main thread collects info,
+// TODO: Move async task to function instead
+// TODO: Permit for tasks, X at the time
 
 #[tokio::main]
 async fn main() {
     let input = Arc::new(Input::parse());
     let client = reqwest::Client::new();
-    let mut set = tokio::task::JoinSet::new();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
 
     for fileinfo in input.to_fileinfo_iter() {
         let local_client = client.clone();
         let local_input = Arc::clone(&input);
+        let local_tx = tx.clone();
 
-        set.spawn(async move {
+        tokio::spawn(async move {
+            let send = move |msg: Msg| {
+                let _ = local_tx.send(msg);
+            };
+
             let FileInfo {
                 source_url,
                 file_path,
@@ -37,7 +43,8 @@ async fn main() {
             let mut file = match open_file(file_path, &local_input).await {
                 Ok(file) => file,
                 Err(e) => {
-                    eprintln!("error when opening {file_name}: {e}");
+                    let e = format!("Error when opening {file_name}: {e}");
+                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
                     return;
                 }
             };
@@ -46,33 +53,71 @@ async fn main() {
             let request = match local_client.get(source_url).send().await {
                 Ok(req) => req,
                 Err(e) => {
-                    eprintln!("Failed to download file {file_name}. Error: {e}");
+                    let e = format!("Failed to download file {file_name}. Error: {e}");
+                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
                     return;
                 }
             };
 
             if !request.status().is_success() {
-                eprintln!(
+                let e = format!(
                     "{}: Make sure your ticker and date is valid!",
                     request.status()
                 );
-                std::process::exit(1)
+                send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                return;
             }
 
             let mut stream = request.bytes_stream();
+
             while let Some(Ok(item)) = stream.next().await {
                 match file.write(&item).await {
-                    Ok(bytes) => println!("wrote bytes {bytes} to: {file_name}"), // this should send it back for display
+                    Ok(bytes) => send(Msg::new(file_name.clone(), MsgType::Written { bytes })),
                     Err(e) => {
-                        eprintln!("{e}: failed do write to file {}. Aborting", file_name);
-                        break;
+                        let e = format!("failed do write to file {}: {e} Aborting", file_name);
+                        send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                        return;
                     }
                 }
             }
-            println!("Done downloading {file_name}!")
+
+            send(Msg {
+                file_name,
+                msg_type: MsgType::Done,
+            });
         });
     }
-    set.join_all().await;
+
+    // Dropping tx to make sure main thread doesn't deadlock
+    // waiting for this handle to send or drop
+    drop(tx);
+
+    while let Some(msg) = rx.recv().await {
+        // TODO: Handle msg types here
+        println!("{} is {:?}", msg.file_name, msg.msg_type)
+    }
+}
+
+struct Msg {
+    // Use ID instead
+    file_name: String,
+    msg_type: MsgType,
+}
+
+impl Msg {
+    fn new(file_name: String, msg_type: MsgType) -> Self {
+        Self {
+            file_name,
+            msg_type,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MsgType {
+    Error(String),
+    Written { bytes: usize },
+    Done,
 }
 
 #[derive(Debug, Parser)]
@@ -116,6 +161,7 @@ impl FromStr for Ticker {
         Ok(Self(s.to_uppercase()))
     }
 }
+
 async fn open_file(
     path: std::path::PathBuf,
     input: &Input,
