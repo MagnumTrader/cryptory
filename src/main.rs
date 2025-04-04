@@ -7,9 +7,10 @@ use tokio::io::AsyncWriteExt;
 
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
-// TODO: channel on main thread collects info,
 // TODO: Move async task to function instead
-// TODO: Permit for tasks, X at the time
+// TODO: Use file ids instead
+// TODO: track progress of files
+// TODO: Implement progress bars
 
 #[tokio::main]
 async fn main() {
@@ -18,14 +19,15 @@ async fn main() {
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
 
-    for fileinfo in input.to_fileinfo_iter() {
+    for (fileinfo, file_id) in input.to_fileinfo_iter().zip(1..) {
         let local_client = client.clone();
         let local_input = Arc::clone(&input);
         let local_tx = tx.clone();
 
         tokio::spawn(async move {
-            let send = move |msg: Msg| {
-                let _ = local_tx.send(msg);
+
+            let send = move |msg: MsgType| {
+                let _ = local_tx.send(Msg::new(file_id, msg));
             };
 
             let FileInfo {
@@ -46,7 +48,7 @@ async fn main() {
                 Ok(req) => req,
                 Err(e) => {
                     let e = format!("Failed to download file {file_name}. Error: {e}");
-                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                    send(MsgType::Error(e));
                     return;
                 }
             };
@@ -56,7 +58,7 @@ async fn main() {
                     "{}: Make sure your ticker and date is valid!",
                     request.status()
                 );
-                send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                send(MsgType::Error(e));
                 return;
             }
 
@@ -64,7 +66,7 @@ async fn main() {
                 Ok(file) => file,
                 Err(e) => {
                     let e = format!("Error when opening {file_name}: {e}");
-                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                    send(MsgType::Error(e));
                     return;
                 }
             };
@@ -73,19 +75,15 @@ async fn main() {
 
             while let Some(Ok(item)) = stream.next().await {
                 match file.write(&item).await {
-                    Ok(bytes) => send(Msg::new(file_name.clone(), MsgType::Written { bytes })),
+                    Ok(bytes) => send(MsgType::Written { bytes }),
                     Err(e) => {
                         let e = format!("failed do write to file {}: {e} Aborting", file_name);
-                        send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                        send(MsgType::Error(e));
                         return;
                     }
                 }
             }
-
-            send(Msg {
-                file_name,
-                msg_type: MsgType::Done,
-            });
+            send(MsgType::Done);
         });
     }
 
@@ -95,20 +93,20 @@ async fn main() {
 
     while let Some(msg) = rx.recv().await {
         // TODO: Handle msg types here
-        println!("{} is {:?}", msg.file_name, msg.msg_type)
+        println!("{} is {:?}", msg.file_id, msg.msg_type)
     }
 }
 
 struct Msg {
     // Use ID instead
-    file_name: String,
+    file_id: usize,
     msg_type: MsgType,
 }
 
 impl Msg {
-    fn new(file_name: String, msg_type: MsgType) -> Self {
+    fn new(file_id: usize, msg_type: MsgType) -> Self {
         Self {
-            file_name,
+            file_id,
             msg_type,
         }
     }
