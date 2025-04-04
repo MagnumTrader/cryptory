@@ -80,7 +80,7 @@ async fn download_file(
         return;
     }
 
-    let mut file = match open_file(file_path.clone(), owerwrite).await {
+    let mut file = match open_file(file_path.clone(), overwrite).await {
         Ok(file) => file,
         Err(e) => {
             let e = format!("Error when opening {file_name}: {e}");
@@ -176,7 +176,7 @@ async fn open_file(
 ) -> Result<tokio::fs::File, std::io::Error> {
     let mut open_options = tokio::fs::OpenOptions::new();
 
-    if !input.overwrite {
+    if !overwrite {
         // create is ignored when create new is set.
         // so we can always include it.
         open_options.create_new(true);
