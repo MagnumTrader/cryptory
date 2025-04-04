@@ -10,14 +10,14 @@ use super::{period::PeriodName, DateHelper, FormattedDate};
 /// The fileInfoIterator is used to iterate over the files
 /// and urls that should be downloaded from binance
 #[derive(Debug)]
-pub struct FileInfoIterator<'a> {
-    input: &'a Input,
+pub struct FileInfoIterator {
+    input: Input,
     curr_date: NaiveDate,
     end_date: NaiveDate,
     curr_id: usize,
 }
 
-impl<'a> Iterator for FileInfoIterator<'a> {
+impl Iterator for FileInfoIterator {
     type Item = FileInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -47,12 +47,8 @@ impl<'a> Iterator for FileInfoIterator<'a> {
         ))
     }
 }
-impl<'a> FileInfoIterator<'a> {
-    pub fn new(
-        input: &'a crate::Input,
-        curr_date: NaiveDate,
-        end_date: NaiveDate,
-    ) -> FileInfoIterator<'a> {
+impl FileInfoIterator {
+    pub fn new(input: crate::Input, curr_date: NaiveDate, end_date: NaiveDate) -> FileInfoIterator {
         Self {
             input,
             curr_date,

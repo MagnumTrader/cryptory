@@ -18,13 +18,14 @@ async fn main() {
     let client = reqwest::Client::new();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
+    let overwrite = input.overwrite;
 
     for fileinfo in input.to_fileinfo_iter() {
         tokio::spawn(download_file(
             fileinfo,
             client.clone(),
             tx.clone(),
-            input.overwrite,
+            overwrite,
         ));
     }
 
@@ -145,7 +146,7 @@ struct Input {
 }
 
 impl Input {
-    fn to_fileinfo_iter(&self) -> FileInfoIterator {
+    fn to_fileinfo_iter(self) -> FileInfoIterator {
         let curr_date = self.period.start_date();
         let end_date = self.period.end_date().unwrap_or(curr_date);
         FileInfoIterator::new(self, curr_date, end_date)
