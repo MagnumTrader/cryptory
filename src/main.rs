@@ -3,9 +3,9 @@ use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
 
 use clap::Parser;
 use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 
-use std::{fmt::Display, str::FromStr, sync::Arc};
+use std::{fmt::Display, str::FromStr};
 
 // TODO: Move async task to function instead
 // TODO: Use file ids instead
@@ -14,77 +14,19 @@ use std::{fmt::Display, str::FromStr, sync::Arc};
 
 #[tokio::main]
 async fn main() {
-    let input = Arc::new(Input::parse());
+    let input = Input::parse();
     let client = reqwest::Client::new();
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
 
     for (fileinfo, file_id) in input.to_fileinfo_iter().zip(1..) {
-        let local_client = client.clone();
-        let local_input = Arc::clone(&input);
-        let local_tx = tx.clone();
-
-        tokio::spawn(async move {
-
-            let send = move |msg: MsgType| {
-                let _ = local_tx.send(Msg::new(file_id, msg));
-            };
-
-            let FileInfo {
-                source_url,
-                file_path,
-            } = fileinfo;
-
-            let file_name = file_path
-                .file_stem()
-                .expect("we expect a file stem")
-                .to_str()
-                .unwrap()
-                .to_string();
-
-
-            println!("Downloading of {} started...", file_name);
-            let request = match local_client.get(source_url).send().await {
-                Ok(req) => req,
-                Err(e) => {
-                    let e = format!("Failed to download file {file_name}. Error: {e}");
-                    send(MsgType::Error(e));
-                    return;
-                }
-            };
-
-            if !request.status().is_success() {
-                let e = format!(
-                    "{}: Make sure your ticker and date is valid!",
-                    request.status()
-                );
-                send(MsgType::Error(e));
-                return;
-            }
-
-            let mut file = match open_file(file_path.clone(), &local_input).await {
-                Ok(file) => file,
-                Err(e) => {
-                    let e = format!("Error when opening {file_name}: {e}");
-                    send(MsgType::Error(e));
-                    return;
-                }
-            };
-
-            let mut stream = request.bytes_stream();
-
-            while let Some(Ok(item)) = stream.next().await {
-                match file.write(&item).await {
-                    Ok(bytes) => send(MsgType::Written { bytes }),
-                    Err(e) => {
-                        let e = format!("failed do write to file {}: {e} Aborting", file_name);
-                        send(MsgType::Error(e));
-                        return;
-                    }
-                }
-            }
-            send(MsgType::Done);
-        });
+        tokio::spawn(download_file(
+            fileinfo,
+            file_id,
+            client.clone(),
+            tx.clone(),
+            input.overwrite,
+        ));
     }
 
     // Dropping tx to make sure main thread doesn't deadlock
@@ -97,6 +39,74 @@ async fn main() {
     }
 }
 
+async fn download_file(
+    fileinfo: FileInfo,
+    file_id: usize,
+    local_client: reqwest::Client,
+    local_tx: mpsc::UnboundedSender<Msg>,
+    overwrite: bool,
+) {
+    let send_msg = move |msg: MsgType| {
+        let _ = local_tx.send(Msg::new(file_id, msg));
+    };
+
+    let FileInfo {
+        source_url,
+        file_path,
+    } = fileinfo;
+
+    let file_name = file_path
+        .file_stem()
+        .expect("we expect a file stem")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let request = match local_client.get(source_url).send().await {
+        Ok(req) => req,
+        Err(e) => {
+            let e = format!("Failed to download file {file_name}. Error: {e}");
+            send_msg(MsgType::Error(e));
+            return;
+        }
+    };
+
+    if !request.status().is_success() {
+        let e = format!(
+            "{}: Make sure your ticker and date is valid!",
+            request.status()
+        );
+        send_msg(MsgType::Error(e));
+        return;
+    }
+
+    let mut file = match open_file(file_path.clone(), owerwrite).await {
+        Ok(file) => file,
+        Err(e) => {
+            let e = format!("Error when opening {file_name}: {e}");
+            send_msg(MsgType::Error(e));
+            return;
+        }
+    };
+
+    let total_size = request.content_length();
+    send_msg(MsgType::Starting { total_size });
+
+    let mut stream = request.bytes_stream();
+
+    while let Some(Ok(item)) = stream.next().await {
+        match file.write(&item).await {
+            Ok(bytes) => send_msg(MsgType::Written { bytes }),
+            Err(e) => {
+                let e = format!("failed do write to file {}: {e} Aborting", file_name);
+                send_msg(MsgType::Error(e));
+                return;
+            }
+        }
+    }
+    send_msg(MsgType::Done);
+}
+
 struct Msg {
     // Use ID instead
     file_id: usize,
@@ -105,16 +115,15 @@ struct Msg {
 
 impl Msg {
     fn new(file_id: usize, msg_type: MsgType) -> Self {
-        Self {
-            file_id,
-            msg_type,
-        }
+        Self { file_id, msg_type }
     }
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 enum MsgType {
     Error(String),
+    Starting { total_size: Option<u64> },
     Written { bytes: usize },
     Done,
 }
@@ -163,7 +172,7 @@ impl FromStr for Ticker {
 
 async fn open_file(
     path: std::path::PathBuf,
-    input: &Input,
+    overwrite: bool,
 ) -> Result<tokio::fs::File, std::io::Error> {
     let mut open_options = tokio::fs::OpenOptions::new();
 
