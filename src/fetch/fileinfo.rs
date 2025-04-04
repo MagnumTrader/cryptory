@@ -14,6 +14,7 @@ pub struct FileInfoIterator<'a> {
     input: &'a Input,
     curr_date: NaiveDate,
     end_date: NaiveDate,
+    curr_id: usize,
 }
 
 impl<'a> Iterator for FileInfoIterator<'a> {
@@ -34,11 +35,15 @@ impl<'a> Iterator for FileInfoIterator<'a> {
             .add_date_from_period(&self.input.period)
             .expect("expect valid date range");
 
+        let file_id = self.curr_id;
+        self.curr_id += 1;
+
         Some(FileInfo::new(
             &self.input.ticker,
             &self.input.timeframe,
             period_name,
             formatted_date,
+            file_id,
         ))
     }
 }
@@ -52,6 +57,7 @@ impl<'a> FileInfoIterator<'a> {
             input,
             curr_date,
             end_date,
+            curr_id: 1,
         }
     }
 }
@@ -60,6 +66,7 @@ impl<'a> FileInfoIterator<'a> {
 pub struct FileInfo {
     pub source_url: Url,
     pub file_path: PathBuf,
+    pub file_id: usize,
 }
 
 impl FileInfo {
@@ -68,6 +75,7 @@ impl FileInfo {
         timeframe: &TimeFrame,
         period_name: PeriodName,
         formatted_date: FormattedDate,
+        file_id: usize,
     ) -> Self {
         let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
         let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
@@ -80,6 +88,7 @@ impl FileInfo {
         FileInfo {
             source_url,
             file_path,
+            file_id,
         }
     }
 }

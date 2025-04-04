@@ -19,10 +19,9 @@ async fn main() {
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
 
-    for (fileinfo, file_id) in input.to_fileinfo_iter().zip(1..) {
+    for fileinfo in input.to_fileinfo_iter() {
         tokio::spawn(download_file(
             fileinfo,
-            file_id,
             client.clone(),
             tx.clone(),
             input.overwrite,
@@ -41,19 +40,19 @@ async fn main() {
 
 async fn download_file(
     fileinfo: FileInfo,
-    file_id: usize,
     local_client: reqwest::Client,
     local_tx: mpsc::UnboundedSender<Msg>,
     overwrite: bool,
 ) {
-    let send_msg = move |msg: MsgType| {
-        let _ = local_tx.send(Msg::new(file_id, msg));
-    };
-
     let FileInfo {
         source_url,
         file_path,
+        file_id,
     } = fileinfo;
+
+    let send_msg = move |msg: MsgType| {
+        let _ = local_tx.send(Msg::new(file_id, msg));
+    };
 
     let file_name = file_path
         .file_stem()
