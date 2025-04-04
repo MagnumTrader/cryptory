@@ -40,14 +40,6 @@ async fn main() {
                 .unwrap()
                 .to_string();
 
-            let mut file = match open_file(file_path, &local_input).await {
-                Ok(file) => file,
-                Err(e) => {
-                    let e = format!("Error when opening {file_name}: {e}");
-                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
-                    return;
-                }
-            };
 
             println!("Downloading of {} started...", file_name);
             let request = match local_client.get(source_url).send().await {
@@ -67,6 +59,15 @@ async fn main() {
                 send(Msg::new(file_name.clone(), MsgType::Error(e)));
                 return;
             }
+
+            let mut file = match open_file(file_path.clone(), &local_input).await {
+                Ok(file) => file,
+                Err(e) => {
+                    let e = format!("Error when opening {file_name}: {e}");
+                    send(Msg::new(file_name.clone(), MsgType::Error(e)));
+                    return;
+                }
+            };
 
             let mut stream = request.bytes_stream();
 
