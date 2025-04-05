@@ -8,9 +8,7 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-// TODO: Move async task to function instead
-// TODO: track progress of files
-// TODO: Implement progress bars
+// TODO: cleaner errors
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +18,11 @@ async fn main() {
     let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
     let overwrite = input.overwrite;
 
+    // HACK: i dont like this abstract or remove later
+    let mut bars: HashMap<usize, (String, Option<ProgressBar>)> = HashMap::new();
+
     for fileinfo in input.to_fileinfo_iter() {
+        bars.insert(fileinfo.file_id, (fileinfo.file_name(), None));
         tokio::spawn(download_file(
             fileinfo,
             client.clone(),
@@ -34,44 +36,74 @@ async fn main() {
     drop(tx);
 
     let mut errors = Vec::new();
-
     let style = ProgressStyle::with_template(
-        "{bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes} {msg}",
+        "{msg} {bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes}",
     )
     .unwrap();
+
     let mpg = indicatif::MultiProgress::new();
-    let mut bars: HashMap<usize, ProgressBar> = HashMap::new();
 
     while let Some(msg) = rx.recv().await {
         let Msg { file_id, msg_type } = msg;
         match msg_type {
-            MsgType::Written { bytes } => expect_file_id(&bars, file_id).inc(bytes),
-            MsgType::Done => expect_file_id(&bars, file_id).finish_with_message("Done"),
+            MsgType::Written { bytes } => expect_progress_bar(&bars, file_id).inc(bytes),
+            MsgType::Done => expect_progress_bar(&bars, file_id).finish_with_message("Done"),
             MsgType::Starting { total_size } => {
+                let name = expect_file_name(&bars, file_id);
                 let pb = if let Some(total_size) = total_size {
-                    // TODO: add name of file as msg
-                    ProgressBar::new(total_size).with_style(style.clone().progress_chars("##-"))
+                    ProgressBar::new(total_size)
+                        .with_style(style.clone().progress_chars("##-"))
+                        .with_message(name.to_string())
                 } else {
                     let spinner = ProgressBar::new_spinner();
                     spinner.enable_steady_tick(std::time::Duration::from_millis(200));
                     spinner
                 };
                 let pb = mpg.add(pb);
-                bars.insert(file_id, pb);
+                if let Some((_, opt)) = bars.get_mut(&file_id) {
+                    let _ = opt.insert(pb);
+                } else {
+                    unreachable!("we should have a file with that id")
+                }
             }
             MsgType::Error(e) => {
-                eprintln!("{e}");
                 errors.push(e);
-                if let Some(bar) = bars.get(&file_id) {
+                if let Some((_, Some(bar))) = bars.get(&file_id) {
                     bar.abandon_with_message("ERROR")
                 }
             }
         }
     }
+
+    if errors.is_empty() {
+        println!("Done downloading files!")
+    } else {
+        eprintln!("Errors occured!");
+        for e in errors {
+            eprintln!("{e}");
+        }
+    }
 }
 
-fn expect_file_id(bars: &HashMap<usize, ProgressBar>, file_id: usize) -> &ProgressBar {
-    bars.get(&file_id).expect("expect bar to exist")
+fn expect_file_id(
+    bars: &HashMap<usize, (String, Option<ProgressBar>)>,
+    file_id: usize,
+) -> &(String, Option<ProgressBar>) {
+    bars.get(&file_id).expect("expect file id")
+}
+
+fn expect_progress_bar(
+    bars: &HashMap<usize, (String, Option<ProgressBar>)>,
+    file_id: usize,
+) -> &ProgressBar {
+    expect_file_id(bars, file_id)
+        .1
+        .as_ref()
+        .expect("we expect a bar to be present")
+}
+
+fn expect_file_name(bars: &HashMap<usize, (String, Option<ProgressBar>)>, file_id: usize) -> &str {
+    expect_file_id(bars, file_id).0.as_str()
 }
 
 async fn download_file(
