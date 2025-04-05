@@ -20,7 +20,6 @@ pub enum Period {
         end_date: Option<NaiveDate>,
     },
     /// Fetch file(s) for each month in the period from start to end date.
-    /// Daily numbers will be ignored, only year and month is taken into account.
     Monthly {
         /// Select the first date you want data from.
         #[arg(value_parser = parse_monthly)]

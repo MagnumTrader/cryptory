@@ -8,7 +8,9 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-// TODO: cleaner errors
+// TODO: Abstract bars handling
+// TODO: fetching Multiple symbols at once
+// TODO: Cleaner errors
 
 #[tokio::main]
 async fn main() {
@@ -186,9 +188,8 @@ enum MsgType {
 }
 
 #[derive(Debug, Parser)]
-#[command(version, long_about = None)]
 #[command(
-    about = "Non official CLI for Binance public data\n\nMore information can be found on https://github.com/binance/binance-public-data/"
+    about = "\n\nUnofficial CLI for Binance public data\nMore information can be found on https://github.com/binance/binance-public-data/"
 )]
 struct Input {
     /// The ticker symbol you want to fetch data for.
@@ -199,6 +200,7 @@ struct Input {
     /// Period of the fetched file.
     #[command(subcommand)]
     period: Period,
+    /// Force overwriting of files if they already exist
     #[arg(short, long)]
     overwrite: bool,
 }
