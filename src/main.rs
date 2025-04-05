@@ -33,7 +33,6 @@ async fn main() {
     // waiting for this handle to send or drop
     drop(tx);
 
-    let mut bars: HashMap<usize, ProgressBar> = HashMap::new();
     let mut errors = Vec::new();
 
     let style = ProgressStyle::with_template(
@@ -41,6 +40,7 @@ async fn main() {
     )
     .unwrap();
     let mpg = indicatif::MultiProgress::new();
+    let mut bars: HashMap<usize, ProgressBar> = HashMap::new();
 
     while let Some(msg) = rx.recv().await {
         let Msg { file_id, msg_type } = msg;
@@ -49,9 +49,8 @@ async fn main() {
             MsgType::Done => expect_file_id(&bars, file_id).finish_with_message("Done"),
             MsgType::Starting { total_size } => {
                 let pb = if let Some(total_size) = total_size {
-                    ProgressBar::new(total_size)
-                        .with_style(style.clone().progress_chars(">>-"))
-                        .with_message("")
+                    // TODO: add name of file as msg
+                    ProgressBar::new(total_size).with_style(style.clone().progress_chars("##-"))
                 } else {
                     let spinner = ProgressBar::new_spinner();
                     spinner.enable_steady_tick(std::time::Duration::from_millis(200));
@@ -61,8 +60,11 @@ async fn main() {
                 bars.insert(file_id, pb);
             }
             MsgType::Error(e) => {
+                eprintln!("{e}");
                 errors.push(e);
-                expect_file_id(&bars, file_id).abandon_with_message("ERROR");
+                if let Some(bar) = bars.get(&file_id) {
+                    bar.abandon_with_message("ERROR")
+                }
             }
         }
     }
@@ -143,7 +145,6 @@ async fn download_file(
 }
 
 struct Msg {
-    // Use ID instead
     file_id: usize,
     msg_type: MsgType,
 }
