@@ -3,12 +3,12 @@ use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
 
 use clap::Parser;
 use futures_util::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
-use std::{fmt::Display, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 // TODO: Move async task to function instead
-// TODO: Use file ids instead
 // TODO: track progress of files
 // TODO: Implement progress bars
 
@@ -33,10 +33,43 @@ async fn main() {
     // waiting for this handle to send or drop
     drop(tx);
 
+    let mut bars: HashMap<usize, ProgressBar> = HashMap::new();
+    let mut errors = Vec::new();
+
+    let style = ProgressStyle::with_template(
+        "[{msg}] {bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes}",
+    )
+    .unwrap();
+    let mpg = indicatif::MultiProgress::new();
+
     while let Some(msg) = rx.recv().await {
-        // TODO: Handle msg types here
-        println!("{} is {:?}", msg.file_id, msg.msg_type)
+        let Msg { file_id, msg_type } = msg;
+        match msg_type {
+            MsgType::Written { bytes } => expect_file_id(&bars, file_id).inc(bytes),
+            MsgType::Done => expect_file_id(&bars, file_id).finish_with_message("Done"),
+            MsgType::Starting { total_size } => {
+                let pb = if let Some(total_size) = total_size {
+                    ProgressBar::new(total_size)
+                        .with_style(style.clone().progress_chars(">>-"))
+                        .with_message("")
+                } else {
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.enable_steady_tick(std::time::Duration::from_millis(200));
+                    spinner
+                };
+                let pb = mpg.add(pb);
+                bars.insert(file_id, pb);
+            }
+            MsgType::Error(e) => {
+                errors.push(e);
+                expect_file_id(&bars, file_id).abandon_with_message("ERROR");
+            }
+        }
     }
+}
+
+fn expect_file_id(bars: &HashMap<usize, ProgressBar>, file_id: usize) -> &ProgressBar {
+    bars.get(&file_id).expect("expect bar to exist")
 }
 
 async fn download_file(
@@ -96,7 +129,9 @@ async fn download_file(
 
     while let Some(Ok(item)) = stream.next().await {
         match file.write(&item).await {
-            Ok(bytes) => send_msg(MsgType::Written { bytes }),
+            Ok(bytes) => send_msg(MsgType::Written {
+                bytes: bytes as u64,
+            }),
             Err(e) => {
                 let e = format!("failed do write to file {}: {e} Aborting", file_name);
                 send_msg(MsgType::Error(e));
@@ -124,7 +159,7 @@ impl Msg {
 enum MsgType {
     Error(String),
     Starting { total_size: Option<u64> },
-    Written { bytes: usize },
+    Written { bytes: u64 },
     Done,
 }
 
