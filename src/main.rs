@@ -37,7 +37,7 @@ async fn main() {
     let mut errors = Vec::new();
 
     let style = ProgressStyle::with_template(
-        "[{msg}] {bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes}",
+        "{bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes} {msg}",
     )
     .unwrap();
     let mpg = indicatif::MultiProgress::new();
