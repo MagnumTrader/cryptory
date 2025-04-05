@@ -194,6 +194,7 @@ struct Input {
     /// The ticker symbol you want to fetch data for.
     ticker: Ticker,
     /// The timeframe of the bars to fetch
+    #[arg(short, long)]
     timeframe: TimeFrame,
     /// Period of the fetched file.
     #[command(subcommand)]
