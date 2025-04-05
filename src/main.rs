@@ -65,7 +65,7 @@ async fn main() {
                 if let Some((_, opt)) = bars.get_mut(&file_id) {
                     let _ = opt.insert(pb);
                 } else {
-                    unreachable!("we should have a file with that id")
+                    unreachable!("we should have a file with that id at this point")
                 }
             }
             MsgType::Error(e) => {
