@@ -87,4 +87,12 @@ impl FileInfo {
             file_id,
         }
     }
+    pub fn file_name(&self) -> String {
+        self.file_path
+            .file_stem()
+            .expect("we expect file_path to be a file")
+            .to_str()
+            .expect("valid str")
+            .to_string()
+    }
 }

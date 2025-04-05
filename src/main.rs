@@ -80,24 +80,13 @@ async fn download_file(
     local_tx: mpsc::UnboundedSender<Msg>,
     overwrite: bool,
 ) {
-    let FileInfo {
-        source_url,
-        file_path,
-        file_id,
-    } = fileinfo;
+    let file_name = fileinfo.file_name();
 
     let send_msg = move |msg: MsgType| {
-        let _ = local_tx.send(Msg::new(file_id, msg));
+        let _ = local_tx.send(Msg::new(fileinfo.file_id, msg));
     };
 
-    let file_name = file_path
-        .file_stem()
-        .expect("we expect a file stem")
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let request = match local_client.get(source_url).send().await {
+    let request = match local_client.get(fileinfo.source_url).send().await {
         Ok(req) => req,
         Err(e) => {
             let e = format!("Failed to download file {file_name}. Error: {e}");
@@ -115,7 +104,7 @@ async fn download_file(
         return;
     }
 
-    let mut file = match open_file(file_path.clone(), overwrite).await {
+    let mut file = match open_file(fileinfo.file_path, overwrite).await {
         Ok(file) => file,
         Err(e) => {
             let e = format!("Error when opening {file_name}: {e}");
