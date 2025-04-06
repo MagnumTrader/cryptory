@@ -8,7 +8,7 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-// TODO: Abstract bars handling
+// TODO: Abstract progressbars handling
 // TODO: fetching Multiple symbols at once
 // TODO: Cleaner errors
 
@@ -17,7 +17,7 @@ async fn main() {
     let input = Input::parse();
     let client = reqwest::Client::new();
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
+    let (tx, mut file_progress_rx) = mpsc::unbounded_channel::<Msg>();
     let overwrite = input.overwrite;
 
     // HACK: i dont like this abstract or remove later
@@ -45,7 +45,7 @@ async fn main() {
 
     let mpg = indicatif::MultiProgress::new();
 
-    while let Some(msg) = rx.recv().await {
+    while let Some(msg) = file_progress_rx.recv().await {
         let Msg { file_id, msg_type } = msg;
         match msg_type {
             MsgType::Written { bytes } => expect_progress_bar(&bars, file_id).inc(bytes),
