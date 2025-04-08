@@ -1,16 +1,16 @@
 mod fetch;
 use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
 
+mod progress_bars;
+use progress_bars::ProgressBars;
+
 use clap::Parser;
 use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
-// TODO: Abstract progressbars handling
 // TODO: fetching Multiple symbols at once
-// TODO: Cleaner errors
 
 #[tokio::main]
 async fn main() {
@@ -20,11 +20,7 @@ async fn main() {
     let (tx, mut file_progress_rx) = mpsc::unbounded_channel::<Msg>();
     let overwrite = input.overwrite;
 
-    // HACK: i dont like this abstract or remove later
-    let mut bars: HashMap<usize, (String, Option<ProgressBar>)> = HashMap::new();
-
     for fileinfo in input.to_fileinfo_iter() {
-        bars.insert(fileinfo.file_id, (fileinfo.file_name(), None));
         tokio::spawn(download_file(
             fileinfo,
             client.clone(),
@@ -38,74 +34,42 @@ async fn main() {
     drop(tx);
 
     let mut errors = Vec::new();
-    let style = ProgressStyle::with_template(
-        "{msg} {bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes}",
-    )
-    .unwrap();
+    let mut bars = ProgressBars::new();
 
-    let mpg = indicatif::MultiProgress::new();
-
-    while let Some(msg) = file_progress_rx.recv().await {
-        let Msg { file_id, msg_type } = msg;
+    while let Some(Msg { file_id, msg_type }) = file_progress_rx.recv().await {
         match msg_type {
-            MsgType::Written { bytes } => expect_progress_bar(&bars, file_id).inc(bytes),
-            MsgType::Done => expect_progress_bar(&bars, file_id).finish_with_message("Done"),
-            MsgType::Starting { total_size } => {
-                let name = expect_file_name(&bars, file_id);
-                let pb = if let Some(total_size) = total_size {
-                    ProgressBar::new(total_size)
-                        .with_style(style.clone().progress_chars("##-"))
-                        .with_message(name.to_string())
-                } else {
-                    let spinner = ProgressBar::new_spinner();
-                    spinner.enable_steady_tick(std::time::Duration::from_millis(200));
-                    spinner
-                };
-                let pb = mpg.add(pb);
-                if let Some((_, opt)) = bars.get_mut(&file_id) {
-                    let _ = opt.insert(pb);
-                } else {
-                    unreachable!("we should have a file with that id at this point")
-                }
-            }
-            MsgType::Error(e) => {
-                errors.push(e);
-                if let Some((_, Some(bar))) = bars.get(&file_id) {
-                    bar.abandon_with_message("ERROR")
-                }
+            MsgType::Written { bytes } => bars.increment(file_id, bytes),
+            MsgType::Done => bars.finish(file_id, None::<String>),
+            MsgType::Starting { total_size, name } => bars.new_bar(file_id, name, total_size),
+            MsgType::Error { error, name } => {
+                errors.push((name, error));
+                bars.abandon(file_id, Some("ERROR"));
             }
         }
     }
 
-    if errors.is_empty() {
-        println!("Done downloading files!")
+    print!("Done downloading files");
+    if !errors.is_empty() {
+        print!(", but Errors occured!\n");
+        for (name, e) in errors {
+            eprintln!("{name} Failed with error: {e}");
+        }
     } else {
-        eprintln!("Errors occured!");
-        for e in errors {
-            eprintln!("{e}");
-        }
+        print!("!")
     }
 }
 
-fn expect_file_id(
-    bars: &HashMap<usize, (String, Option<ProgressBar>)>,
-    file_id: usize,
-) -> &(String, Option<ProgressBar>) {
-    bars.get(&file_id).expect("expect file id")
+#[derive(Debug)]
+pub enum Error {
+    FailedToSendRequest,
+    CouldNotFindFileAtHost,
+    CouldNotOpenFile(std::io::ErrorKind),
+    FailedToWriteToFile,
 }
-
-fn expect_progress_bar(
-    bars: &HashMap<usize, (String, Option<ProgressBar>)>,
-    file_id: usize,
-) -> &ProgressBar {
-    expect_file_id(bars, file_id)
-        .1
-        .as_ref()
-        .expect("we expect a bar to be present")
-}
-
-fn expect_file_name(bars: &HashMap<usize, (String, Option<ProgressBar>)>, file_id: usize) -> &str {
-    expect_file_id(bars, file_id).0.as_str()
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 async fn download_file(
@@ -115,55 +79,59 @@ async fn download_file(
     overwrite: bool,
 ) {
     let file_name = fileinfo.file_name();
-
     let send_msg = move |msg: MsgType| {
         let _ = local_tx.send(Msg::new(fileinfo.file_id, msg));
     };
 
-    let request = match local_client.get(fileinfo.source_url).send().await {
-        Ok(req) => req,
-        Err(e) => {
-            let e = format!("Failed to download file {file_name}. Error: {e}");
-            send_msg(MsgType::Error(e));
-            return;
-        }
+    let Ok(request) = local_client.get(fileinfo.source_url).send().await else {
+        send_msg(MsgType::Error {
+            name: file_name.clone(),
+            error: Error::FailedToSendRequest,
+        });
+        return;
     };
 
     if !request.status().is_success() {
-        let e = format!(
-            "{}: Make sure your ticker and date is valid!",
-            request.status()
-        );
-        send_msg(MsgType::Error(e));
+        send_msg(MsgType::Error {
+            name: file_name.clone(),
+            error: Error::CouldNotFindFileAtHost,
+        });
         return;
     }
 
     let mut file = match open_file(fileinfo.file_path, overwrite).await {
         Ok(file) => file,
         Err(e) => {
-            let e = format!("Error when opening {file_name}: {e}");
-            send_msg(MsgType::Error(e));
+            send_msg(MsgType::Error {
+                name: file_name.clone(),
+                error: Error::CouldNotOpenFile(e.kind()),
+            });
             return;
         }
     };
 
     let total_size = request.content_length();
-    send_msg(MsgType::Starting { total_size });
+    send_msg(MsgType::Starting {
+        name: file_name.clone(),
+        total_size,
+    });
 
     let mut stream = request.bytes_stream();
 
     while let Some(Ok(item)) = stream.next().await {
-        match file.write(&item).await {
-            Ok(bytes) => send_msg(MsgType::Written {
-                bytes: bytes as u64,
-            }),
-            Err(e) => {
-                let e = format!("failed do write to file {}: {e} Aborting", file_name);
-                send_msg(MsgType::Error(e));
-                return;
-            }
-        }
+        let Ok(bytes) = file.write(&item).await else {
+            send_msg(MsgType::Error {
+                name: file_name.clone(),
+                error: Error::FailedToWriteToFile,
+            });
+            return;
+        };
+
+        send_msg(MsgType::Written {
+            bytes: bytes as u64,
+        })
     }
+
     send_msg(MsgType::Done);
 }
 
@@ -178,12 +146,19 @@ impl Msg {
     }
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 enum MsgType {
-    Error(String),
-    Starting { total_size: Option<u64> },
-    Written { bytes: u64 },
+    Error {
+        name: String,
+        error: Error,
+    },
+    Starting {
+        name: String,
+        total_size: Option<u64>,
+    },
+    Written {
+        bytes: u64,
+    },
     Done,
 }
 
