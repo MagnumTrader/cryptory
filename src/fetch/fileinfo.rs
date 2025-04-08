@@ -5,13 +5,15 @@ use reqwest::Url;
 
 use crate::{Input, Ticker, TimeFrame};
 
-use super::{period::PeriodName, DateHelper, FormattedDate};
+use super::{period::PeriodName, DateHelper, FormattedDate, Period};
 
 /// The fileInfoIterator is used to iterate over the files
 /// and urls that should be downloaded from binance
 #[derive(Debug)]
 pub struct FileInfoIterator {
-    input: Input,
+    period: Period,
+    tickers: Vec<Ticker>,
+    timeframe: TimeFrame,
     curr_date: NaiveDate,
     end_date: NaiveDate,
     curr_id: usize,
@@ -25,22 +27,22 @@ impl Iterator for FileInfoIterator {
             return None;
         }
 
-        let period = &self.input.period;
+        let period = &self.period;
         // Maybe these should be types later?
         let formatted_date = self.curr_date.date_url_str(period);
         let period_name = period.period_name();
 
         self.curr_date = self
             .curr_date
-            .add_date_from_period(&self.input.period)
+            .add_date_from_period(&self.period)
             .expect("expect valid date range");
 
         let file_id = self.curr_id;
         self.curr_id += 1;
 
         Some(FileInfo::new(
-            &self.input.ticker,
-            &self.input.timeframe,
+            &self.tickers[0],
+            &self.timeframe,
             period_name,
             formatted_date,
             file_id,
@@ -48,9 +50,17 @@ impl Iterator for FileInfoIterator {
     }
 }
 impl FileInfoIterator {
-    pub fn new(input: crate::Input, curr_date: NaiveDate, end_date: NaiveDate) -> FileInfoIterator {
+    pub fn new(
+        tickers: Vec<Ticker>,
+        timeframe: TimeFrame,
+        period: Period,
+    ) -> FileInfoIterator {
+        let curr_date = period.start_date();
+        let end_date = period.end_date().unwrap_or(curr_date);
         Self {
-            input,
+            period,
+            timeframe,
+            tickers,
             curr_date,
             end_date,
             curr_id: 1,
