@@ -20,7 +20,7 @@ async fn main() {
     let (tx, mut file_progress_rx) = mpsc::unbounded_channel::<Msg>();
     let overwrite = input.overwrite;
 
-    for fileinfo in input.to_fileinfo_iter() {
+    for fileinfo in FileInfoIterator::from(input) {
         tokio::spawn(download_file(
             fileinfo,
             client.clone(),
@@ -180,11 +180,9 @@ struct Input {
     overwrite: bool,
 }
 
-impl Input {
-    fn to_fileinfo_iter(self) -> FileInfoIterator {
-        let curr_date = self.period.start_date();
-        let end_date = self.period.end_date().unwrap_or(curr_date);
-        FileInfoIterator::new(self, curr_date, end_date)
+impl From<Input> for FileInfoIterator {
+    fn from(value: Input) -> Self {
+        FileInfoIterator::new(value.ticker, value.timeframe, value.period)
     }
 }
 
