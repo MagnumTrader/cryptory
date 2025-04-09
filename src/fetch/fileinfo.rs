@@ -5,7 +5,10 @@ use reqwest::Url;
 
 use crate::{Input, Ticker, TimeFrame};
 
-use super::{period::PeriodName, DateHelper, FormattedDate, Period};
+use super::{
+    period::{DateIterator, PeriodName},
+    DateHelper, FormattedDate, Period,
+};
 
 /// The fileInfoIterator is used to iterate over the files
 /// and urls that should be downloaded from binance
@@ -14,8 +17,7 @@ pub struct FileInfoIterator {
     period: Period,
     tickers: Vec<Ticker>,
     timeframe: TimeFrame,
-    curr_date: NaiveDate,
-    end_date: NaiveDate,
+    date_iter: DateIterator,
     curr_id: usize,
 }
 
@@ -23,19 +25,12 @@ impl Iterator for FileInfoIterator {
     type Item = FileInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_date > self.end_date {
-            return None;
-        }
+        let curr_date = self.date_iter.next()?;
 
         let period = &self.period;
         // Maybe these should be types later?
-        let formatted_date = self.curr_date.date_url_str(period);
+        let formatted_date = curr_date.date_url_str(period);
         let period_name = period.period_name();
-
-        self.curr_date = self
-            .curr_date
-            .add_date_from_period(&self.period)
-            .expect("expect valid date range");
 
         let file_id = self.curr_id;
         self.curr_id += 1;
@@ -49,20 +44,16 @@ impl Iterator for FileInfoIterator {
         ))
     }
 }
+
 impl FileInfoIterator {
-    pub fn new(
-        tickers: Vec<Ticker>,
-        timeframe: TimeFrame,
-        period: Period,
-    ) -> FileInfoIterator {
-        let curr_date = period.start_date();
-        let end_date = period.end_date().unwrap_or(curr_date);
+    pub fn new(tickers: Vec<Ticker>, timeframe: TimeFrame, period: Period) -> FileInfoIterator {
+        // TODO: and a symbol iterator
+        let date_iter = DateIterator::from(period.clone());
         Self {
             period,
             timeframe,
             tickers,
-            curr_date,
-            end_date,
+            date_iter,
             curr_id: 1,
         }
     }
@@ -83,6 +74,7 @@ impl FileInfo {
         formatted_date: FormattedDate,
         file_id: usize,
     ) -> Self {
+
         let file_name = format!("{ticker}-{timeframe}-{formatted_date}.zip");
         let url_str = format!("https://data.binance.vision/data/spot/{period_name}/klines/{ticker}/{timeframe}/{file_name}");
 
