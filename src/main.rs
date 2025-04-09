@@ -12,9 +12,8 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use std::fmt::Display;
 
-// TODO: fetching Multiple symbols at once
-// TODO: symbols from file
 // TODO: remove files on interrupt?
+// TODO: ask for retry on the files that failed
 
 #[tokio::main]
 async fn main() {

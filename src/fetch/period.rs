@@ -13,7 +13,7 @@ pub struct DateIterator {
     period: Period,
 }
 impl DateIterator {
-    pub fn reset(&mut self)  {
+    pub fn reset(&mut self) {
         *self = DateIterator::from(self.period.clone())
     }
 }
@@ -80,7 +80,11 @@ pub enum Period {
 //TODO: Create better parsing for period so start_date >= end_date etc
 pub fn parse_monthly(input: &str) -> Result<NaiveDate, &'static str> {
     let date = match NaiveDate::from_str(input) {
-        Ok(date) => date,
+
+        // NOTE: this is to fix bug where we iterate months
+        // when we check if current_date < end_date, this needs to 
+        // be set the first in the month.
+        Ok(date) => date.with_day(1).expect("valid day"),
         Err(_) => {
             let mut s: String = input.into();
             s.push_str("-01");
@@ -169,7 +173,7 @@ mod tests {
     use super::*;
     #[test]
     fn date_iter_daily() {
-        let period = Period::new(nd(2025, 1, 1), Some(nd(2025,1,5)), PeriodName::Daily);
+        let period = Period::new(nd(2025, 1, 1), Some(nd(2025, 1, 5)), PeriodName::Daily);
 
         let mut date_iter = DateIterator::from(period.clone());
         assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
@@ -208,7 +212,7 @@ mod tests {
 
     #[test]
     fn date_iter_reset() {
-        let period = Period::new(nd(2025, 1, 1), Some(nd(2025,1,5)), PeriodName::Daily);
+        let period = Period::new(nd(2025, 1, 1), Some(nd(2025, 1, 5)), PeriodName::Daily);
 
         let mut date_iter = DateIterator::from(period.clone());
         assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
