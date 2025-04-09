@@ -1,4 +1,5 @@
 mod fetch;
+mod ticker;
 use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
 
 mod progress_bars;
@@ -7,8 +8,9 @@ use progress_bars::ProgressBars;
 use clap::Parser;
 use futures_util::StreamExt;
 use tokio::{io::AsyncWriteExt, sync::mpsc};
+pub use ticker::Ticker;
 
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
 
 // TODO: fetching Multiple symbols at once
 // TODO: symbols from file
@@ -68,6 +70,7 @@ pub enum Error {
     CouldNotOpenFile(std::io::ErrorKind),
     FailedToWriteToFile,
 }
+
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
@@ -188,22 +191,6 @@ impl From<Input> for FileInfoIterator {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Ticker(String);
-
-impl Display for Ticker {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl FromStr for Ticker {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // validate symbols here i guess url will fail?
-        Ok(Self(s.to_uppercase()))
-    }
-}
 
 async fn open_file(
     path: std::path::PathBuf,
