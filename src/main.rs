@@ -11,6 +11,8 @@ use tokio::{io::AsyncWriteExt, sync::mpsc};
 use std::{fmt::Display, str::FromStr};
 
 // TODO: fetching Multiple symbols at once
+// TODO: symbols from file
+// TODO: remove files on interrupt?
 
 #[tokio::main]
 async fn main() {
@@ -168,7 +170,7 @@ enum MsgType {
 )]
 struct Input {
     /// The ticker symbol you want to fetch data for.
-    ticker: Ticker,
+    ticker: Vec<Ticker>,
     /// The timeframe of the bars to fetch
     #[arg(short, long)]
     timeframe: TimeFrame,
