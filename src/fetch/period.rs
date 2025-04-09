@@ -12,6 +12,11 @@ pub struct DateIterator {
     end_date: NaiveDate,
     period: Period,
 }
+impl DateIterator {
+    pub fn reset(&mut self)  {
+        *self = DateIterator::from(self.period.clone())
+    }
+}
 
 impl From<Period> for DateIterator {
     fn from(value: Period) -> Self {
@@ -198,6 +203,30 @@ mod tests {
         let mut date_iter = DateIterator::from(period.clone());
         assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
         assert_eq!(None, date_iter.next());
+        assert_eq!(None, date_iter.next());
+    }
+
+    #[test]
+    fn date_iter_reset() {
+        let period = Period::new(nd(2025, 1, 1), Some(nd(2025,1,5)), PeriodName::Daily);
+
+        let mut date_iter = DateIterator::from(period.clone());
+        assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
+        assert_eq!(Some(nd(2025, 1, 2)), date_iter.next());
+        date_iter.reset();
+        assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
+        assert_eq!(Some(nd(2025, 1, 2)), date_iter.next());
+        assert_eq!(Some(nd(2025, 1, 3)), date_iter.next());
+        assert_eq!(Some(nd(2025, 1, 4)), date_iter.next());
+        assert_eq!(Some(nd(2025, 1, 5)), date_iter.next());
+        assert_eq!(None, date_iter.next());
+
+        let period = Period::new(nd(2025, 1, 1), None, PeriodName::Daily);
+        let mut date_iter = DateIterator::from(period.clone());
+        assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
+        assert_eq!(None, date_iter.next());
+        date_iter.reset();
+        assert_eq!(Some(nd(2025, 1, 1)), date_iter.next());
         assert_eq!(None, date_iter.next());
     }
 }
