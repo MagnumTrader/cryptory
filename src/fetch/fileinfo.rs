@@ -1,14 +1,12 @@
-use std::path::PathBuf;
-
-use chrono::NaiveDate;
-use reqwest::Url;
-
-use crate::{Input, Ticker, TimeFrame};
-
+use crate::{Ticker, TimeFrame};
 use super::{
     period::{DateIterator, PeriodName},
     DateHelper, FormattedDate, Period,
 };
+
+use reqwest::Url;
+
+use std::path::PathBuf;
 
 /// The fileInfoIterator is used to iterate over the files
 /// and urls that should be downloaded from binance
@@ -28,7 +26,7 @@ impl Iterator for FileInfoIterator {
         let curr_date = self.date_iter.next()?;
 
         let period = &self.period;
-        // Maybe these should be types later?
+
         let formatted_date = curr_date.date_url_str(period);
         let period_name = period.period_name();
 
