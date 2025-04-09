@@ -183,6 +183,7 @@ struct Input {
     /// Force overwriting of files if they already exist
     #[arg(short, long)]
     overwrite: bool,
+    // TODO: add alternative to not print, only print the downloaded files to stdout.
 }
 
 impl From<Input> for FileInfoIterator {

@@ -1,13 +1,13 @@
 #[derive(Debug, Clone)]
 pub struct Ticker(String);
 
-impl Display for Ticker {
+impl std::fmt::Display for Ticker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl FromStr for Ticker {
+impl std::str::FromStr for Ticker {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // validate symbols here i guess url will fail?
