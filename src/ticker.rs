@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 #[derive(Debug, Clone)]
 pub struct Ticker(String);
 
@@ -15,37 +17,26 @@ impl std::str::FromStr for Ticker {
     }
 }
 
-pub struct Tickerator<'a> {
-    origin: &'a [Ticker],
-    current: usize,
+#[derive(Debug)]
+pub struct Tickerator {
+    origin: VecDeque<Ticker>,
 }
 
-impl<'a> Tickerator<'a> {
-    pub fn reset(&mut self) {
-        self.current = 0
-    }
-}
-
-impl<'a> Iterator for Tickerator<'a> {
-    type Item = &'a Ticker;
+impl Iterator for Tickerator {
+    type Item = Ticker;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current >= self.origin.len() {
-            return None;
-        };
-
-        let ticker_index = self.current;
-        self.current += 1;
-
-        Some(&self.origin[ticker_index])
+        self.origin.pop_front()
     }
 }
 
-impl<'a> From<&'a [Ticker]> for Tickerator<'a> {
-    fn from(value: &'a [Ticker]) -> Self {
+impl<T> From<T> for Tickerator
+where
+    T: Into<VecDeque<Ticker>>,
+{
+    fn from(value: T) -> Self {
         Tickerator {
-            origin: value,
-            current: 0,
+            origin: value.into(),
         }
     }
 }

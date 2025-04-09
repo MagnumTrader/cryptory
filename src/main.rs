@@ -7,8 +7,8 @@ use progress_bars::ProgressBars;
 
 use clap::Parser;
 use futures_util::StreamExt;
-use tokio::{io::AsyncWriteExt, sync::mpsc};
 pub use ticker::Ticker;
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use std::fmt::Display;
 
@@ -191,7 +191,6 @@ impl From<Input> for FileInfoIterator {
         FileInfoIterator::new(value.ticker, value.timeframe, value.period)
     }
 }
-
 
 async fn open_file(
     path: std::path::PathBuf,
