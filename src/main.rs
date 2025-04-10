@@ -68,15 +68,11 @@ async fn main() {
                         };
                     };
 
-                    let overwrite_filter = if to_overwrite {
-                        |(f, e): &(FileInfo, Error)| true
-                    } else {
-                        // Filter out the files that had an overwrite error,
-                        // and retry the files that had other errors.
-                        |(f, e): &(FileInfo, Error)| match e {
-                            Error::CouldNotOpenFile(AlreadyExists) => false ,
-                            _ => true
-                        }
+                    // Filter out the files that had an overwrite error,
+                    // and retry the files that had other errors.
+                    let overwrite_filter = |(_, e): &(FileInfo, Error)| match e {
+                        Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => to_overwrite,
+                        _ => true,
                     };
 
                     rx = download_files(failed_files.filter(overwrite_filter).map(|(x, _)| x), to_overwrite);
