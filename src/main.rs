@@ -34,22 +34,24 @@ async fn main() {
                 let extra = match e {
                     Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => {
                         to_overwrite = true;
-                        "-o to overwrite"
+                        " -o to overwrite"
                     }
                     Error::CouldNotFindFileAtHost => {
-                        "Is symbol and date correct?"
+                        " Is symbol and date correct?"
                     }
                     _ => "",
                 };
-                eprintln!("{} Failed with error: {e}. {extra}", fileinfo.file_name());
+                eprintln!("{} Failed with error: {e}.{extra}", fileinfo.file_name());
             }
 
-            println!("Do you want to retry downloading these files, y/n?");
+
+            write_to_user("Do you want to retry downloading these files, y/n? ").await;
+
             match user_input_yes_or_no().await {
                 UserInput::Yes => {
                     // exclude overwriting always, and rely on the flag?
                     if to_overwrite {
-                        println!("You have some files that already exists\nWould you like to overwrite existing files, y/n?");
+                        write_to_user("You have some files that already exists\nWould you like to overwrite existing files, y/n? ").await;
                         match user_input_yes_or_no().await {
                             UserInput::Yes => to_overwrite = true,
                             UserInput::No => to_overwrite = false,
@@ -81,6 +83,14 @@ async fn main() {
         }
     }
 }
+
+// TODO: this should be a function part of getting the input aswell 
+async fn write_to_user(s: &str)  {
+    let mut stdout = tokio::io::stdout();
+    let _ = stdout.write(s.as_bytes()).await;
+    let _ = stdout.flush().await;
+}
+
 
 enum UserInput {
     Yes,
