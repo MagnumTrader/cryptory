@@ -68,7 +68,7 @@ impl FileInfoIterator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileInfo {
     pub source_url: Url,
     pub file_path: PathBuf,

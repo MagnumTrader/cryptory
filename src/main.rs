@@ -1,3 +1,4 @@
+#![allow(unused, unreachable_code)]
 mod fetch;
 mod ticker;
 use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
@@ -8,11 +9,87 @@ use progress_bars::ProgressBars;
 use clap::Parser;
 use futures_util::StreamExt;
 pub use ticker::Ticker;
-use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    sync::mpsc,
+};
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    io::{ErrorKind::AlreadyExists, Read},
+};
 
 // TODO: ask for retry on the files that failed
+//      TODO: return the fileinfo with the error so we can parse them again.
+//      TODO: Abstract away the file_downloading, make it take an any into_iterator of FileInfo
+//            This can be a function, download many, that will clone all the txs and stuff
+//            client can be created in the function.
+//            returns a reciever for FileProgressReciever
+
+#[tokio::main]
+async fn main() {
+    let mut user_input: [u8; 128] = [0; 128];
+
+    let input = Input::parse();
+
+    let overwrite = input.overwrite;
+    let mut rx = download_files(FileInfoIterator::from(input), overwrite);
+
+    loop {
+        if let Err(errors) = handle_file_updates(rx, true).await {
+            println!("Done downloading files, but errors occured:");
+            let mut to_overwrite = false;
+            for (fileinfo, e) in errors.iter() {
+                let extra = match e {
+                    Error::CouldNotOpenFile(AlreadyExists) => {
+                        to_overwrite = true;
+                        "use argument -o to overwrite"
+                    }
+                    _ => "",
+                };
+                eprintln!("{} Failed with error: {e}. {extra}", fileinfo.file_name());
+            }
+
+            println!("Do you want to retry downloading these files, y/n?");
+            let mut stdin = tokio::io::stdin();
+            let bytes = stdin.read(&mut user_input).await.unwrap();
+
+            let mut failed_files = errors.into_iter();
+
+            match user_input[..bytes].trim_ascii_end() {
+                [b'y'] | [b'Y'] => {
+                    if to_overwrite {
+                        println!("Would you like to overwrite existing files, y/n?");
+                        let bytes = stdin.read(&mut user_input).await.unwrap();
+                        to_overwrite = match user_input[..bytes].trim_ascii_end() {
+                            [b'y'] | [b'Y'] => true,
+                            [b'n'] | [b'N'] => false,
+                            _ => false,
+                        };
+                    };
+
+                    let overwrite_filter = if to_overwrite {
+                        |(f, e): &(FileInfo, Error)| true
+                    } else {
+                        // Filter out the files that had an overwrite error,
+                        // and retry the files that had other errors.
+                        |(f, e): &(FileInfo, Error)| match e {
+                            Error::CouldNotOpenFile(AlreadyExists) => false ,
+                            _ => true
+                        }
+                    };
+
+                    rx = download_files(failed_files.filter(overwrite_filter).map(|(x, _)| x), to_overwrite);
+                    continue;
+                }
+                _ => break,
+            }
+        } else {
+            println!("Done downloading files!");
+            break;
+        }
+    }
+}
 
 type FileProgressReciever = mpsc::UnboundedReceiver<Msg>;
 
@@ -36,36 +113,39 @@ fn download_files(
     file_progress_rx
 }
 
-#[tokio::main]
-async fn main() {
-    let input = Input::parse();
-
-    let overwrite = input.overwrite;
-    let mut file_progress_rx = download_files(FileInfoIterator::from(input), overwrite);
-
+async fn handle_file_updates(
+    mut rx: FileProgressReciever,
+    progress_bars: bool,
+) -> Result<(), Vec<(FileInfo, Error)>> {
     let mut errors = Vec::new();
-    let mut bars = ProgressBars::new();
 
-    while let Some(Msg { file_id, msg_type }) = file_progress_rx.recv().await {
-        match msg_type {
-            MsgType::Written { bytes } => bars.increment(file_id, bytes),
-            MsgType::Done => bars.finish(file_id, None::<String>),
-            MsgType::Starting { total_size, name } => bars.new_bar(file_id, name, total_size),
-            MsgType::Error { error, name } => {
-                errors.push((name, error));
-                bars.abandon(file_id, Some("ERROR"));
+    if progress_bars {
+        let mut bars = ProgressBars::new();
+        while let Some(Msg { file_id, msg_type }) = rx.recv().await {
+            match msg_type {
+                MsgType::Written { bytes } => bars.increment(file_id, bytes),
+                MsgType::Done => bars.finish(file_id, None::<String>),
+                MsgType::Starting { total_size, name } => bars.new_bar(file_id, name, total_size),
+                MsgType::Error { error, fileinfo } => {
+                    errors.push((fileinfo, error));
+                    bars.abandon(file_id, Some("ERROR"));
+                }
+            }
+        }
+    } else {
+        while let Some(Msg { file_id, msg_type }) = rx.recv().await {
+            match msg_type {
+                _ => {}
+                MsgType::Error { error, fileinfo } => {
+                    errors.push((fileinfo, error));
+                }
             }
         }
     }
-
-    print!("Done downloading files");
-    if !errors.is_empty() {
-        print!(", but Errors occured!\n");
-        for (name, e) in errors {
-            eprintln!("{name} Failed with error: {e}");
-        }
+    if errors.is_empty() {
+        Ok(())
     } else {
-        print!("!")
+        Err(errors)
     }
 }
 
@@ -94,9 +174,9 @@ async fn download_file(
         let _ = local_tx.send(Msg::new(fileinfo.file_id, msg));
     };
 
-    let Ok(request) = local_client.get(fileinfo.source_url).send().await else {
+    let Ok(request) = local_client.get(fileinfo.source_url.clone()).send().await else {
         send_msg(MsgType::Error {
-            name: file_name.clone(),
+            fileinfo: fileinfo.clone(),
             error: Error::FailedToSendRequest,
         });
         return;
@@ -104,17 +184,17 @@ async fn download_file(
 
     if !request.status().is_success() {
         send_msg(MsgType::Error {
-            name: file_name.clone(),
+            fileinfo,
             error: Error::CouldNotFindFileAtHost,
         });
         return;
     }
 
-    let mut file = match open_file(fileinfo.file_path, overwrite).await {
+    let mut file = match open_file(fileinfo.file_path.clone(), overwrite).await {
         Ok(file) => file,
         Err(e) => {
             send_msg(MsgType::Error {
-                name: file_name.clone(),
+                fileinfo,
                 error: Error::CouldNotOpenFile(e.kind()),
             });
             return;
@@ -132,7 +212,7 @@ async fn download_file(
     while let Some(Ok(item)) = stream.next().await {
         let Ok(bytes) = file.write(&item).await else {
             send_msg(MsgType::Error {
-                name: file_name.clone(),
+                fileinfo,
                 error: Error::FailedToWriteToFile,
             });
             return;
@@ -160,7 +240,7 @@ impl Msg {
 #[derive(Debug)]
 enum MsgType {
     Error {
-        name: String,
+        fileinfo: FileInfo,
         error: Error,
     },
     Starting {
