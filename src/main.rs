@@ -1,4 +1,3 @@
-#![allow(unused, unreachable_code)]
 mod fetch;
 mod ticker;
 use fetch::{FileInfo, FileInfoIterator, Period, TimeFrame};
@@ -10,26 +9,17 @@ use clap::Parser;
 use futures_util::StreamExt;
 pub use ticker::Ticker;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc,
 };
 
-use std::{
-    fmt::Display,
-    io::{ErrorKind::AlreadyExists, Read},
-};
+use std::{fmt::Display, io::ErrorKind};
 
-// TODO: ask for retry on the files that failed
-//      TODO: return the fileinfo with the error so we can parse them again.
-//      TODO: Abstract away the file_downloading, make it take an any into_iterator of FileInfo
-//            This can be a function, download many, that will clone all the txs and stuff
-//            client can be created in the function.
-//            returns a reciever for FileProgressReciever
+// TODO: Cleaning
+// TODO: Input to specific function Yes, no, other(String)
 
 #[tokio::main]
 async fn main() {
-    let mut user_input: [u8; 128] = [0; 128];
-
     let input = Input::parse();
 
     let overwrite = input.overwrite;
@@ -39,11 +29,15 @@ async fn main() {
         if let Err(errors) = handle_file_updates(rx, true).await {
             println!("Done downloading files, but errors occured:");
             let mut to_overwrite = false;
+
             for (fileinfo, e) in errors.iter() {
                 let extra = match e {
-                    Error::CouldNotOpenFile(AlreadyExists) => {
+                    Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => {
                         to_overwrite = true;
-                        "use argument -o to overwrite"
+                        "-o to overwrite"
+                    }
+                    Error::CouldNotFindFileAtHost => {
+                        "Is symbol and date correct?"
                     }
                     _ => "",
                 };
@@ -51,39 +45,67 @@ async fn main() {
             }
 
             println!("Do you want to retry downloading these files, y/n?");
-            let mut stdin = tokio::io::stdin();
-            let bytes = stdin.read(&mut user_input).await.unwrap();
-
-            let mut failed_files = errors.into_iter();
-
-            match user_input[..bytes].trim_ascii_end() {
-                [b'y'] | [b'Y'] => {
+            match user_input_yes_or_no().await {
+                UserInput::Yes => {
+                    // exclude overwriting always, and rely on the flag?
                     if to_overwrite {
-                        println!("Would you like to overwrite existing files, y/n?");
-                        let bytes = stdin.read(&mut user_input).await.unwrap();
-                        to_overwrite = match user_input[..bytes].trim_ascii_end() {
-                            [b'y'] | [b'Y'] => true,
-                            [b'n'] | [b'N'] => false,
-                            _ => false,
-                        };
+                        println!("You have some files that already exists\nWould you like to overwrite existing files, y/n?");
+                        match user_input_yes_or_no().await {
+                            UserInput::Yes => to_overwrite = true,
+                            UserInput::No => to_overwrite = false,
+                            UserInput::NotExpectedInput => todo!(),
+                            UserInput::InvalidInput => todo!(),
+                        }
                     };
 
-                    // Filter out the files that had an overwrite error,
-                    // and retry the files that had other errors.
+                    // Filter out the files that had an overwrite error
+                    // if to_overwrite is false, and retry the files that had other errors.
                     let overwrite_filter = |(_, e): &(FileInfo, Error)| match e {
                         Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => to_overwrite,
                         _ => true,
                     };
 
-                    rx = download_files(failed_files.filter(overwrite_filter).map(|(x, _)| x), to_overwrite);
+                    rx = download_files(
+                        errors.into_iter().filter(overwrite_filter).map(|(x, _)| x),
+                        to_overwrite,
+                    );
                     continue;
                 }
-                _ => break,
+                UserInput::InvalidInput => break,
+                UserInput::NotExpectedInput => break,
+                UserInput::No => break,
             }
         } else {
             println!("Done downloading files!");
             break;
         }
+    }
+}
+
+enum UserInput {
+    Yes,
+    No,
+    NotExpectedInput,
+    InvalidInput,
+}
+
+async fn take_user_input() -> Result<String, std::string::FromUtf8Error> {
+    let mut user_input = [0; 128];
+    let mut stdin = tokio::io::stdin();
+    let bytes = stdin.read(&mut user_input).await.unwrap();
+    let input = user_input[..bytes].trim_ascii_end();
+    String::from_utf8(input.to_vec())
+}
+
+async fn user_input_yes_or_no() -> UserInput {
+    let Ok(user_input) = take_user_input().await else {
+        return UserInput::InvalidInput;
+    };
+
+    match user_input.as_str() {
+        "y" | "Y" | "Yes" | "yes" | "YES" => UserInput::Yes,
+        "n" | "N" | "No" | "no" | "NO" => UserInput::No,
+        _ => UserInput::NotExpectedInput,
     }
 }
 
@@ -129,12 +151,12 @@ async fn handle_file_updates(
             }
         }
     } else {
-        while let Some(Msg { file_id, msg_type }) = rx.recv().await {
+        while let Some(Msg { msg_type, .. }) = rx.recv().await {
             match msg_type {
-                _ => {}
                 MsgType::Error { error, fileinfo } => {
                     errors.push((fileinfo, error));
                 }
+                _ => {}
             }
         }
     }
