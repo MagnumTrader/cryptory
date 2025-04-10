@@ -14,15 +14,17 @@ use std::fmt::Display;
 
 // TODO: ask for retry on the files that failed
 
-#[tokio::main]
-async fn main() {
-    let input = Input::parse();
+type FileProgressReciever = mpsc::UnboundedReceiver<Msg>;
+
+fn download_files(
+    fileinfo_iter: impl Iterator<Item = FileInfo>,
+    overwrite: bool,
+) -> FileProgressReciever {
+    let (tx, file_progress_rx) = mpsc::unbounded_channel::<Msg>();
+
     let client = reqwest::Client::new();
 
-    let (tx, mut file_progress_rx) = mpsc::unbounded_channel::<Msg>();
-    let overwrite = input.overwrite;
-
-    for fileinfo in FileInfoIterator::from(input) {
+    for fileinfo in fileinfo_iter {
         tokio::spawn(download_file(
             fileinfo,
             client.clone(),
@@ -31,9 +33,15 @@ async fn main() {
         ));
     }
 
-    // Dropping tx to make sure main thread doesn't deadlock
-    // waiting for this handle to send or drop
-    drop(tx);
+    file_progress_rx
+}
+
+#[tokio::main]
+async fn main() {
+    let input = Input::parse();
+
+    let overwrite = input.overwrite;
+    let mut file_progress_rx = download_files(FileInfoIterator::from(input), overwrite);
 
     let mut errors = Vec::new();
     let mut bars = ProgressBars::new();
