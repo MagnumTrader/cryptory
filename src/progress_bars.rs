@@ -12,7 +12,7 @@ pub struct ProgressBars {
 impl ProgressBars {
     pub fn new() -> Self {
         let style = ProgressStyle::with_template(
-            "{msg} {bar:30.cyan/blue} {decimal_bytes:>7}/{decimal_total_bytes}",
+            "{msg} {bar:30} {decimal_bytes:>7}/{decimal_total_bytes}",
         )
         .unwrap()
         .progress_chars("##-");
@@ -23,6 +23,7 @@ impl ProgressBars {
             style,
         }
     }
+
     pub fn new_bar(&mut self, bar_id: usize, name: String, total_size: Option<u64>) {
         if self.current_bars.contains_key(&bar_id) {
             panic!("this file id has already started a bar")

@@ -23,7 +23,7 @@ async fn main() {
 
     loop {
         if let Err(errors) = handle_file_updates(rx, true).await {
-            println!("Done downloading files, but errors occured:");
+            println!("\nDone downloading files, but errors occured:");
             let mut need_overwrite = false;
 
             for (fileinfo, e) in errors.iter() {
