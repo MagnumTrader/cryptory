@@ -2,8 +2,8 @@ mod fetch;
 mod ticker;
 mod user_input;
 
-use fetch::*;
 pub use ticker::Ticker;
+use fetch::*;
 use user_input::*;
 
 mod progress_bars;
@@ -13,8 +13,6 @@ use clap::Parser;
 use tokio::sync::mpsc;
 
 use std::io::ErrorKind;
-
-// TODO: Cleaning
 
 #[tokio::main]
 async fn main() {
