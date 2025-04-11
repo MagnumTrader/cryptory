@@ -11,11 +11,10 @@ pub struct ProgressBars {
 
 impl ProgressBars {
     pub fn new() -> Self {
-        let style = ProgressStyle::with_template(
-            "{msg} {bar:30} {decimal_bytes:>7}/{decimal_total_bytes}",
-        )
-        .unwrap()
-        .progress_chars("##-");
+        let style =
+            ProgressStyle::with_template("{msg} {bar:30} {decimal_bytes:>7}/{decimal_total_bytes}")
+                .unwrap()
+                .progress_chars("##-");
 
         Self {
             current_bars: HashMap::default(),
@@ -34,7 +33,12 @@ impl ProgressBars {
                 .with_style(self.style.clone())
                 .with_message(name.to_string())
         } else {
-            let spinner = ProgressBar::new_spinner();
+            let spinner = ProgressBar::new_spinner()
+                .with_style(
+                    ProgressStyle::with_template("{msg} {spinner} {decimal_bytes:>7}/{decimal_total_bytes}")
+                        .expect("expect correct template"),
+                )
+                .with_message(name.to_string());
             spinner.enable_steady_tick(std::time::Duration::from_millis(200));
             spinner
         };
