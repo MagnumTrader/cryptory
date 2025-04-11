@@ -2,8 +2,8 @@ mod fetch;
 mod ticker;
 mod user_input;
 
-pub use ticker::Ticker;
 use fetch::*;
+pub use ticker::Ticker;
 use user_input::*;
 
 mod progress_bars;
@@ -17,6 +17,11 @@ use std::io::ErrorKind;
 #[tokio::main]
 async fn main() {
     let input = Input::parse();
+
+    if input.ticker.is_empty() {
+        eprintln!("ERROR: you must provide atleast one ticker");
+        std::process::exit(1)
+    }
 
     let overwrite = input.overwrite;
     let mut rx = download_files(FileInfoIterator::from(input), overwrite);
