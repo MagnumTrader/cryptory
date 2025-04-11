@@ -12,10 +12,10 @@ This data gets fetched from binance: [https://data.binance.vision/].\
 > I take no responsibility for any financial loss or mental distress resulting from the use of this tool.
 
 \
-\
+
 > Pull requests are welcomed!
-\
-\
+
+
 The downloads are in zip format, after downloading you use other tools to unzip and merge files / write to your local db.
 
 ## Installing Cryptory
