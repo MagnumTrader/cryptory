@@ -14,6 +14,7 @@ currently supports Spot prices of OHLC bars "klines".
 > Pull requests are welcomed!
 
 ![Output sample](https://github.com/MagnumTrader/cryptory/blob/main/testrun.gif)
+
 The downloads are in zip format, after downloading you use other tools to unzip and merge files / write to your local db as per your needs!
 
 ## Installing Cryptory
