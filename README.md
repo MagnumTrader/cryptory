@@ -3,7 +3,8 @@
 Crypto-History
 
 CLI tool for fetching historical data for cryptocurrencies.\
-This data gets fetched from binance: https://data.binance.vision/ 
+This data gets fetched from binance: https://data.binance.vision/\ 
+currently supports Spot prices of OHLC bars "klines".
 
 
 > [!WARNING] 
