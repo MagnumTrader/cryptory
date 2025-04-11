@@ -3,7 +3,7 @@
 Crypto-History
 
 CLI tool for fetching historical data for cryptocurrencies.\
-This data gets fetched from binance: https://data.binance.vision/ \
+This data gets fetched from binance: https://data.binance.vision/ 
 
 
 
@@ -11,14 +11,9 @@ This data gets fetched from binance: https://data.binance.vision/ \
 > I have no affiliation with Binance, and this CLI comes with no guarantees regarding data accuracy.\
 > I take no responsibility for any financial loss or mental distress resulting from the use of this tool.
 
-
-
-
 > Pull requests are welcomed!
 
-
-
-The downloads are in zip format, after downloading you use other tools to unzip and merge files / write to your local db.
+The downloads are in zip format, after downloading you use other tools to unzip and merge files / write to your local db as per your needs!
 
 ## Installing Cryptory
 Use cargo to install the tool on your computer.
