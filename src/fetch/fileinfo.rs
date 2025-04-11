@@ -42,7 +42,7 @@ impl Iterator for FileInfoIterator {
         self.curr_id += 1;
 
         Some(FileInfo::new(
-            &ticker,
+            ticker,
             &self.timeframe,
             period_name,
             formatted_date,
@@ -75,6 +75,7 @@ pub struct FileInfo {
     pub file_id: usize,
 }
 
+
 impl FileInfo {
     pub fn new(
         ticker: &Ticker,
@@ -88,7 +89,9 @@ impl FileInfo {
 
         let source_url = Url::parse(&url_str).expect("expect correct url format above");
 
-        let mut file_path = PathBuf::from(std::env::current_dir().unwrap());
+        // TODO: Replace this with a field on the fileinfoiterator
+        // and pass to the new function
+        let mut file_path = std::env::current_dir().expect("expect to be able to open current dir");
         file_path.push(file_name);
 
         FileInfo {
