@@ -86,21 +86,23 @@ async fn main() {
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "\n\nUnofficial CLI for Binance public data\nMore information can be found on https://github.com/binance/binance-public-data/"
+    about = "\nCryptory\nUnofficial CLI for Binance public data\nMore information can be found on https://github.com/binance/binance-public-data/"
 )]
 struct Input {
     /// The ticker symbol you want to fetch data for.
     ticker: Vec<Ticker>,
+
     /// The timeframe of the bars to fetch
     #[arg(short, long)]
     timeframe: TimeFrame,
+
     /// Period of the fetched file.
     #[command(subcommand)]
     period: Period,
+
     /// Force overwriting of files if they already exist
     #[arg(short, long)]
     overwrite: bool,
-    // TODO: add alternative to not print, only print the downloaded files to stdout.
 }
 
 impl From<Input> for FileInfoIterator {
