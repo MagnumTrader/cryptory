@@ -29,47 +29,38 @@ async fn main() {
     loop {
         if let Err(errors) = handle_file_updates(rx, true).await {
             println!("\nDone downloading files, but errors occured:");
-            let mut need_overwrite = false;
+            let mut possible_retry = false;
+            // add files that failed to download, invalid name or already exist should not be
+            // parsed again
 
             for (fileinfo, e) in errors.iter() {
                 let extra = match e {
-                    Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => {
-                        need_overwrite = true;
-                        " -o to overwrite"
-                    }
+                    Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => " -o to overwrite",
                     Error::CouldNotFindFileAtHost => " Is symbol and date correct?",
-                    _ => "",
+                    _ => {
+                        possible_retry = true;
+                        ""
+                    }
                 };
                 eprintln!("{} Failed with error: {e}.{extra}", fileinfo.file_name());
             }
 
-            write_to_user("Do you want to retry downloading the other files that failed, y/n? ")
-                .await;
+            if !possible_retry {
+                break;
+            }
+
+            write_to_user("Do you want to retry downloading the other files that failed, y/n? ").await;
             match user_input_yes_or_no().await {
                 UserInput::Yes => {
-                    if need_overwrite {
-                        write_to_user("You have some files that already exists\nWould you like to overwrite existing files, y/n? ").await;
-                        need_overwrite = loop {
-                            match user_input_yes_or_no().await {
-                                UserInput::Yes => break true,
-                                UserInput::No => break false,
-                                _ => {
-                                    write_to_user("Invalid input, use y/n or yes/no").await;
-                                    continue;
-                                }
-                            }
-                        }
-                    };
-
-                    // Filter out the files that had an overwrite error
-                    // if to_overwrite is false, and retry the files that had other errors.
+                    // Filter out errors that should not be retried
                     let overwrite_filter = |(_, e): &(FileInfo, Error)| match e {
-                        Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => need_overwrite,
+                        Error::CouldNotOpenFile(ErrorKind::AlreadyExists) => false,
+                        Error::CouldNotFindFileAtHost => false,
                         _ => true,
                     };
                     rx = download_files(
-                        errors.into_iter().filter(overwrite_filter).map(|(x, _)| x),
-                        need_overwrite,
+                        errors.into_iter().filter(overwrite_filter).map(|(file_info, _)| file_info),
+                        overwrite,
                     );
                     continue;
                 }
@@ -78,7 +69,7 @@ async fn main() {
                 UserInput::No => break,
             }
         } else {
-            println!("Done downloading files!");
+            println!("\nDone downloading files!");
             break;
         }
     }
