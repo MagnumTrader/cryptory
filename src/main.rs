@@ -2,6 +2,7 @@ mod fetch;
 mod ticker;
 mod user_input;
 
+// testing
 use fetch::*;
 pub use ticker::Ticker;
 use user_input::*;
